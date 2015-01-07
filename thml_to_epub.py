@@ -7,13 +7,15 @@ import sys
 
 inputfile = sys.argv[1]
 
+print "Converting {0}".format(inputfile)
+
 thml = file(inputfile).read()
 
 outputfile = inputfile.replace('.xml', '').replace('.thml', '') + ".epub"
 
-epub = zipfile.ZipFile(outputfile, "w")
+epub = zipfile.ZipFile(outputfile, "w", zipfile.ZIP_DEFLATED)
 
-epub.writestr("mimetype", "application/epub+zip")
+epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
 
 # The filenames of the HTML are listed in html_files
 html_files = [inputfile]
@@ -26,7 +28,7 @@ epub.writestr("META-INF/container.xml", '''<container version="1.0"
   <rootfiles>
     <rootfile full-path="OEBPS/Content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
-</container>''');
+</container>''', zipfile.ZIP_STORED);
 
 # The index file is another XML file, living per convention
 # in OEBPS/Content.xml
@@ -45,12 +47,12 @@ manifest = ""
 spine = ""
 
 # Write each HTML file to the ebook, collect information for the index
-for i, html in enumerate(html_files):
+for i, html_file in enumerate(html_files):
     basename = os.path.basename(inputfile)
     manifest += '<item id="file_%s" href="%s" media-type="application/xhtml+xml"/>' % (
         i+1, basename)
     spine += '<itemref idref="file_%s" />' % (i+1)
-    epub.write(inputfile, 'OEBPS/'+basename)
+    epub.write(html_file, 'OEBPS/'+basename, zipfile.ZIP_DEFLATED)
 
 # Finally, write the index
 epub.writestr('OEBPS/Content.opf', index_tpl % {
