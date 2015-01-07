@@ -11,7 +11,7 @@ print "Converting {0}".format(inputfile)
 
 thml = file(inputfile).read()
 
-outputfile = inputfile.replace('.xml', '').replace('.thml', '') + ".epub"
+outputfile = inputfile.replace('.xml', '').replace('.thml', '') + ".rough.epub"
 
 epub = zipfile.ZipFile(outputfile, "w", zipfile.ZIP_DEFLATED)
 

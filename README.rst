@@ -13,6 +13,8 @@ tend to be tolerant of errors, this works surprisingly well.
 Usage
 ~~~~~
 
-$ python thml_to_epub.py book.xml
+    $ python thml_to_epub.py book.xml
 
-An epub file ``book.epub`` is created.
+An epub file ``book.rough.epub`` is created ('rough' to indicate the current
+state of conversion, and to avoid overwriting a better epub file which might
+exist!)
