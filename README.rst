@@ -6,9 +6,10 @@ books, developed CCEL.
 
 This repo contains the beginnings of a converter to epub format.
 
-Currently, it is extremely basic, and just assumes that ThML files are actually
-HTML files. Since ThML is based on HTML and ebook viewers are based on HTML and
-tend to be tolerant of errors, this works surprisingly well.
+Currently, it is extremely basic, and just assumes that ThML files are
+actually HTML files.  Since ThML is based on HTML and ebook readers are
+based on HTML and tend to be tolerant of errors, this works surprisingly
+well with some readers e.g. calibre. With others you will just get a mess.
 
 Usage
 ~~~~~
@@ -32,3 +33,5 @@ Almost everything!
   original position.
 * Convert scripRef
 * Possibly split files into multiple files in epub structure.
+
+See http://www.manuel-strehl.de/dev/simple_epub_ebooks_with_python.en.html
