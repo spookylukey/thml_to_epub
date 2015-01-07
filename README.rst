@@ -18,3 +18,17 @@ Usage
 An epub file ``book.rough.epub`` is created ('rough' to indicate the current
 state of conversion, and to avoid overwriting a better epub file which might
 exist!)
+
+
+TODO
+~~~~
+
+Almost everything!
+
+* Extract meta data
+* Go through http://www.ccel.org/ThML/ThML1.04.htm and find everything that
+  needs converting.
+* Convert <note place="end|foot|margin"> into endnotes with hyperlinks to the
+  original position.
+* Convert scripRef
+* Possibly split files into multiple files in epub structure.
