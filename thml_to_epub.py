@@ -66,12 +66,33 @@ ADEFS = {
     'title': COPY,
 }
 
+# Base class
 class Handler(object):
     def match(self, from_node):
         return self.from_node_name == '*' or from_node.tag == self.from_node_name
 
     def post_process(self, runner, output_dom):
         pass
+
+    def handle_node(self, runner, from_node, output_parent):
+        # This method should add everything necessary
+        # to output_parent (which is an ElementTree node of the
+        # parent node in the output document) from
+        # 'from_node' (but not its child nodes). So, for example,
+        # a Handler that maps a single node to a single node
+        # will create just one Element from the current node.
+
+        # This method must then return a tuple containing:
+        #  descend, node
+        #
+        # where:
+        #
+        # descend is a flag saying whether the conversion process should descend
+        # into child nodes.
+        #
+        # node is the node that should be used as the parent node
+        # for the child nodes.
+        raise NotImplementedError()
 
 
 def UNWRAP(node_name):
@@ -83,7 +104,7 @@ def UNWRAP(node_name):
             # Care with text and tail
             append_text(output_parent, from_node.text)
             append_text(output_parent, from_node.tail)
-            return True, None
+            return True, output_parent
 
     nodehandler.from_node_name = node_name
     nodehandler.__name__ = 'UNWRAP({0})'.format(node_name)
@@ -287,11 +308,11 @@ class ThmlToHtml(object):
             return
         new_parents = [n for d, n in retvals if n is not None]
         if len(new_parents) > 1:
-            raise Exception("More than one parent node returned for {0}".format(input_node.tag))
-        if len(new_parents) == 1:
-            new_parent = new_parents[0]
-        else:
-            new_parent = output_parent_node # Same parent (for case of unwrapping)
+            raise Exception("More than one parent node returned for {0} on line {1}".format(input_node.tag, input_node.sourceline))
+        if len(new_parents) == 0:
+            raise Exception("No new parent defined for node {0} on line {1}".format(input_node.tag, input_node.sourceline))
+        new_parent = new_parents[0]
+
         for node in input_node.getchildren():
             self.descend(node, new_parent)
 
