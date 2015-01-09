@@ -347,7 +347,7 @@ def thml_to_html(input_thml):
 ### HTML to epub ###
 
 
-def create_epub(input_html, outputfilename):
+def create_epub(input_html_pairs, outputfilename):
     epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
 
     epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
@@ -378,8 +378,8 @@ def create_epub(input_html, outputfilename):
     spine = ""
 
     # Write each HTML file to the ebook, collect information for the index
-    for i, html_data in enumerate(input_html):
-        basename = "{0}.html".format(i)
+    for i, (src_name, html_data) in enumerate(input_html_pairs):
+        basename = "{0}.html".format(src_name)
         manifest += '<item id="file_%s" href="%s" media-type="application/xhtml+xml"/>' % (
             i+1, basename)
         spine += '<itemref idref="file_%s" />' % (i+1)
@@ -405,10 +405,10 @@ def main():
     outputfile = input_files[0].replace('.xml', '').replace('.thml', '') + ".rough.epub"
 
     sys.stdout.write("Creating {0}\n".format(outputfile))
-    input_thml = [file(input_file).read() for input_file in input_files]
+    input_thml_pairs = [(fn, file(fn).read()) for fn in input_files]
     transformer = ThmlToHtml()
-    input_html = [transformer.transform(t, full_xml=True) for t in input_thml]
-    create_epub(input_html, outputfile)
+    input_html_pairs = [(fn, transformer.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
+    create_epub(input_html_pairs, outputfile)
 
 
 def test_elems():
