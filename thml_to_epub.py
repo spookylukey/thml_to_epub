@@ -228,6 +228,77 @@ class ScripRefHandler(MAP('scripRef', 'a',
             node.set('href', '#')
         return descend, node
 
+
+class NoteHandler(Handler):
+    from_node_name = 'note'
+    def __init__(self):
+        self.notes = []
+        self.generated_id_num = 0
+        self.generated_anchor_id_num = 0
+
+    def next_id(self):
+        self.generated_id_num += 1
+        return "generatedid_{0}".format(self.generated_id_num)
+
+    def next_anchor_id(self):
+        self.generated_anchor_id_num += 1
+        return "generatedanchorid_{0}".format(self.generated_anchor_id_num)
+
+    def handle_node(self, runner, from_node, output_parent):
+        # Build note
+        note_id = from_node.attrib.get('id', None)
+        if note_id is None:
+            note_id = self.next_id()
+        note = etree.Element("div", {'id': note_id,
+                                     'class': 'note'})
+        note.sourceline = from_node.sourceline
+
+        # Build anchor
+        anchor = etree.Element("a",
+                               {'href': '#' + note_id,
+                                'id': self.next_anchor_id(),
+                            })
+        anchor.sourceline = from_node.sourceline
+        anchor.tail = from_node.tail
+        sup = etree.Element("sup")
+        sup.text = "[{0}]".format(len(self.notes)+1)
+        anchor.append(sup)
+        output_parent.append(anchor)
+
+        # Return anchor
+        return_anchor = etree.Element('a',
+                                      {'href': '#' + anchor.attrib['id']})
+        return_anchor.text = "[^back]"
+        return_anchor.tail = " "
+        # Put the text of the note after the return anchor:
+        note.append(return_anchor)
+        add_tail(return_anchor, from_node.text)
+
+        self.notes.append((anchor, note))
+        return True, note # Need the children elements of <note> to be added
+
+    def post_process(self, runner, output_dom):
+        note_containers = {}
+
+        for anchor, note in self.notes:
+            div = find_outermost_div(anchor)
+            if div is None:
+                sys.stderr.write("WARNING: Can't find a div to place footnote for note on line {0}\n".format(anchor.sourceline))
+                continue
+            if div not in note_containers:
+                container = etree.Element('div', attrib={'class': 'notes'})
+                div.append(container)
+            else:
+                container = note_containers[div]
+            container.append(note)
+
+def find_outermost_div(node, last_div=None):
+    if node is None:
+        return last_div
+    if node.tag == 'div':
+        last_div = node
+    return find_outermost_div(node.getparent(), last_div=last_div)
+
 class Fallback(UNWRAP('*')):
     pass
 
@@ -256,12 +327,18 @@ HANDLERS = [
     DIV('div3', 'div', DIVADEFS),
     DIV('div4', 'div', DIVADEFS),
     DIV('div5', 'div', DIVADEFS),
-
     MAP('verse', 'div', dplus(ADEFS, {ADD: [('class', 'verse')]})),
-    MAP('scripCom', 'div', dplus(ADEFS, {ADD: [('class', 'scripCom')]})),
+    MAP('scripCom', 'div', dplus(ADEFS,
+                                 {ADD: [('class', 'scripCom')],
+                                  'parsed': REMOVE,
+                                  'osisRef': REMOVE,
+                                  'passage': REMOVE,
+                                  'type': REMOVE,
+                              })),
     LineHandler,
     ScripRefHandler,
     MAP('pb', 'br', dplus(ADEFS, {'n': REMOVE, 'href': REMOVE})),
+    NoteHandler,
 
     UNWRAP('added'),
     DELETE('deleted'),
@@ -484,5 +561,15 @@ def test_attribs():
     assert thml_to_html('<ThML><pb n="ii" id="i"/></ThML>').strip() == \
         '<html>\n  <br id="i"/>\n</html>'
 
+def test_notes():
+    assert (thml_to_html('<ThML><div1><p>Peter<note>a <i>complete</i> idiot</note> said...</p></div1></ThML>').strip() ==
+            '<html>\n'
+            '  <div>\n'
+            '    <p>Peter<a href="#generatedid_1" id="generatedanchorid_1"><sup>[1]</sup></a> said...</p>\n'
+            '    <div class="notes">\n'
+            '      <div class="note" id="generatedid_1"><a href="#generatedanchorid_1">[^back]</a> a <i>complete</i> idiot</div>\n'
+            '    </div>\n'
+            '  </div>\n'
+            '</html>')
 if __name__ == '__main__':
     main()
