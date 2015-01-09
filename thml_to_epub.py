@@ -409,7 +409,7 @@ def create_epub(input_html_pairs, outputfilename):
 
     # Write each HTML file to the ebook, collect information for the index
     for i, (src_name, html_data) in enumerate(input_html_pairs):
-        basename = "{0}.html".format(src_name)
+        basename = "{0}.html".format(i)
         manifest += '<item id="file_%s" href="%s" media-type="application/xhtml+xml"/>' % (
             i+1, basename)
         spine += '<itemref idref="file_%s" />' % (i+1)
