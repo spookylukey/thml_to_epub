@@ -247,12 +247,13 @@ HANDLERS = [
 
 ]
 
+DOCTYPE = """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n"""
 
 class ThmlToHtml(object):
     def __init__(self):
         self.handlers = [cls() for cls in HANDLERS]
 
-    def transform(self, thml):
+    def transform(self, thml, full_xml=False):
         input_root = etree.fromstring(thml)
         output_root = etree.Element('root') # Temporary container that we will strip again
         self.fallback = Fallback()
@@ -261,7 +262,13 @@ class ThmlToHtml(object):
         assert len(children) == 1
         output_dom = children[0]
         self.post_process(output_dom)
-        return etree.tostring(output_dom, pretty_print=True)
+        if full_xml:
+            output_dom.set('xmlns', "http://www.w3.org/1999/xhtml")
+        return etree.tostring(output_dom,
+                              encoding='utf-8',
+                              doctype=DOCTYPE if full_xml else None,
+                              xml_declaration=True if full_xml else None,
+                              pretty_print=True)
 
     def descend(self, input_node, output_parent_node):
         retvals = []
@@ -295,7 +302,7 @@ class ThmlToHtml(object):
 
 # Simple interface:
 def thml_to_html(input_thml):
-    return ThmlToHtml().transform(input_thml)
+    return ThmlToHtml().transform(input_thml, full_xml=False)
 
 
 ### HTML to epub ###
@@ -360,7 +367,8 @@ def main():
 
     sys.stdout.write("Creating {0}\n".format(outputfile))
     input_thml = [file(input_file).read() for input_file in input_files]
-    input_html = map(thml_to_html, input_thml)
+    transformer = ThmlToHtml()
+    input_html = [transformer.transform(t, full_xml=True) for t in input_thml]
     create_epub(input_html, outputfile)
 
 
