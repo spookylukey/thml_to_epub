@@ -2,14 +2,13 @@ Converter from ThML to epub
 ===========================
 
 `ThML <http://www.ccel.org/ThML/>`_ is a format used to mark up theological
-books, developed CCEL.
+books, developed by CCEL.
 
 This repo contains the beginnings of a converter to epub format.
 
-Currently, it is extremely basic, and just assumes that ThML files are
-actually HTML files.  Since ThML is based on HTML and ebook readers are
-based on HTML and tend to be tolerant of errors, this works surprisingly
-well with some readers e.g. calibre. With others you will just get a mess.
+It doesn't yet produce fully valid epub files, but they can be viewed in several
+ebook readers including calibre and lucidor.
+
 
 Usage
 ~~~~~
@@ -24,14 +23,12 @@ exist!)
 TODO
 ~~~~
 
-Almost everything!
-
-* Extract meta data
+* Extract meta data and add to epub file
 * Go through http://www.ccel.org/ThML/ThML1.04.htm and find everything that
   needs converting.
 * Convert <note place="end|foot|margin"> into endnotes with hyperlinks to the
   original position.
-* Convert scripRef
 * Possibly split files into multiple files in epub structure.
+* Build table of contents
 
 See http://www.manuel-strehl.de/dev/simple_epub_ebooks_with_python.en.html
