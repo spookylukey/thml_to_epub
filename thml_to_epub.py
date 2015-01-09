@@ -191,6 +191,12 @@ class Fallback(UNWRAP('*')):
     pass
 
 
+DIVADEFS = dplus(ADEFS,
+                 {'n': REMOVE,
+                  'shorttitle': REMOVE,
+                  'progress': REMOVE,
+                  'prev': REMOVE,
+                  'next': REMOVE,})
 # Define set of classes that will handle the transformation.
 HANDLERS = [
     # TODO ThML.head etc
@@ -203,11 +209,12 @@ HANDLERS = [
     MAP('ThML', 'html', {}),
     MAP('ThML.head', 'head', {}),
     MAP('ThML.body', 'body', {}),
-    DIV('div1', 'div', dplus(ADEFS, {'n': REMOVE})),
-    DIV('div2', 'div', dplus(ADEFS, {'n': REMOVE})),
-    DIV('div3', 'div', dplus(ADEFS, {'n': REMOVE})),
-    DIV('div4', 'div', dplus(ADEFS, {'n': REMOVE})),
-    DIV('div5', 'div', dplus(ADEFS, {'n': REMOVE})),
+    DIV('div1', 'div', DIVADEFS),
+    DIV('div2', 'div', DIVADEFS),
+    DIV('div3', 'div', DIVADEFS),
+    DIV('div4', 'div', DIVADEFS),
+    DIV('div5', 'div', DIVADEFS),
+
     MAP('verse', 'div', dplus(ADEFS, {ADD: [('class', 'verse')]})),
     LineHandler,
     ScripRefHandler,
@@ -221,6 +228,7 @@ HANDLERS = [
 
     # Block
     MAP('p', 'p', ADEFS),
+    MAP('div', 'div', ADEFS),
     MAP('h1', 'h1', ADEFS),
     MAP('h2', 'h2', ADEFS),
     MAP('h3', 'h3', ADEFS),
