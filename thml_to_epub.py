@@ -68,8 +68,15 @@ ADEFS = {
 
 # Base class
 class Handler(object):
+    def match_attributes(self, attribs):
+        if not hasattr(self, 'attrib_matcher'):
+            return True
+        else:
+            return self.attrib_matcher(attribs)
+
     def match(self, from_node):
-        return self.from_node_name == '*' or from_node.tag == self.from_node_name
+        return (self.from_node_name == '*' or from_node.tag == self.from_node_name) and \
+            self.match_attributes(from_node.attrib)
 
     def post_process(self, runner, output_dom):
         pass
@@ -95,6 +102,10 @@ class Handler(object):
         raise NotImplementedError()
 
 
+def add_attrib_matcher(nodehandler, attrib_matcher):
+    if attrib_matcher is not None:
+        nodehandler.attrib_matcher = lambda self, attribs: attrib_matcher(attribs)
+
 def UNWRAP(node_name):
     """
     Returns a Handler that unwraps a node, yanking children up.
@@ -111,7 +122,7 @@ def UNWRAP(node_name):
     return nodehandler
 
 
-def DELETE(node_name):
+def DELETE(node_name, attrib_matcher=None):
     """
     Returns a Handler that deletes a node (including children)
     """
@@ -123,10 +134,11 @@ def DELETE(node_name):
 
     nodehandler.__name__ = 'DELETE({0})'.format(node_name)
     nodehandler.from_node_name = node_name
+    add_attrib_matcher(nodehandler, attrib_matcher)
     return nodehandler
 
 
-def MAP(from_node_name, to_node_name, attribs, collector=None):
+def MAP(from_node_name, to_node_name, attribs, attrib_matcher=None):
     """Returns a Handler that maps from one node to another,
     with handled attributes given in attribs.
 
@@ -164,6 +176,7 @@ def MAP(from_node_name, to_node_name, attribs, collector=None):
     nodehandler.from_node_name = from_node_name
     nodehandler.to_node_name = to_node_name
     nodehandler.attribs = attribs
+    add_attrib_matcher(nodehandler, attrib_matcher)
 
     return nodehandler
 
@@ -246,6 +259,11 @@ HANDLERS = [
     ## HTML elements
     # Header:
     MAP('title', 'title', {}),
+    DELETE('link'),
+    DELETE('script'),
+    MAP('style', 'style', {'type':COPY}, attrib_matcher=lambda attrib: attrib.get('type', '')=='text/css'),
+    DELETE('style', attrib_matcher=lambda attrib: attrib.get('type', '')=='text/xcss'),
+
 
     # Block
     MAP('p', 'p', ADEFS),
@@ -418,6 +436,10 @@ def test_elems():
         '<html>\n  <span class="line">A line<br/></span>\n</html>'
     assert thml_to_html('<ThML><ThML.head><title>The Title</title></ThML.head></ThML>').strip() == \
         '<html>\n  <head>\n    <title>The Title</title>\n  </head>\n</html>'
+    assert thml_to_html('<ThML><style type="text/css">foo</style></ThML>').strip() == \
+        '<html>\n  <style type="text/css">foo</style>\n</html>'
+    assert thml_to_html('<ThML><style type="text/xcss">foo</style></ThML>').strip() == \
+        '<html/>'
 
 def test_divs():
     assert thml_to_html('<ThML><div1><div2>Some text</div2>And more</div1></ThML>').strip() == \
