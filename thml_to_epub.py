@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import urllib
 import zipfile
 
 from lxml import etree
@@ -180,6 +181,16 @@ class LineHandler(CollectNodesMixin,
         for node in self.collected_nodes:
             node.append(etree.Element('br'))
 
+
+class ScripRefHandler(MAP('scripRef', 'a',
+                          dplus(ADEFS, {'passage': REMOVE, 'parsed': REMOVE, 'osisRef': REMOVE}))):
+    def handle_node(self, runner, from_node, output_parent):
+        descend, node = super(ScripRefHandler, self).handle_node(runner, from_node, output_parent)
+        if node is not None:
+            node.set('href',
+                     'https://www.biblegateway.com/passage/?search={0}&version=NIV'.format(urllib.quote(from_node.attrib['passage'])))
+        return descend, node
+
 class Fallback(UNWRAP('*')):
     pass
 
@@ -203,6 +214,7 @@ HANDLERS = [
     DIV('div5', 'div', dplus(ADEFS, {'n': REMOVE})),
     MAP('verse', 'div', dplus(ADEFS, {ADD: [('class', 'verse')]})),
     LineHandler,
+    ScripRefHandler,
 
     UNWRAP('added'),
     DELETE('deleted'),
