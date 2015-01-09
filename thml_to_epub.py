@@ -235,6 +235,7 @@ class Fallback(UNWRAP('*')):
 DIVADEFS = dplus(ADEFS,
                  {'n': REMOVE,
                   'shorttitle': REMOVE,
+                  'title': REMOVE,
                   'progress': REMOVE,
                   'prev': REMOVE,
                   'next': REMOVE,})
