@@ -69,10 +69,7 @@ ADEFS = {
 # Base class
 class Handler(object):
     def match_attributes(self, attribs):
-        if not hasattr(self, 'attrib_matcher'):
-            return True
-        else:
-            return self.attrib_matcher(attribs)
+        return True
 
     def match(self, from_node):
         return (self.from_node_name == '*' or from_node.tag == self.from_node_name) and \
@@ -103,8 +100,11 @@ class Handler(object):
 
 
 def add_attrib_matcher(nodehandler, attrib_matcher):
+    """
+    Adds a 'match_attributes' method to a Handler class from a matcher function.
+    """
     if attrib_matcher is not None:
-        nodehandler.attrib_matcher = lambda self, attribs: attrib_matcher(attribs)
+        nodehandler.match_attributes = lambda self, attribs: attrib_matcher(attribs)
 
 def UNWRAP(node_name):
     """
