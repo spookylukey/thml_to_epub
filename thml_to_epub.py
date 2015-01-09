@@ -211,6 +211,9 @@ class LineHandler(CollectNodesMixin,
         for node in self.collected_nodes:
             node.append(etree.Element('br'))
 
+def fix_passage_ref(ref):
+    # TODO handle osisRef or passage better - expand abbreviations
+    return ref.replace('.', ' ')
 
 class ScripRefHandler(MAP('scripRef', 'a',
                           dplus(ADEFS, {'passage': REMOVE, 'parsed': REMOVE, 'osisRef': REMOVE}))):
@@ -218,7 +221,8 @@ class ScripRefHandler(MAP('scripRef', 'a',
         descend, node = super(ScripRefHandler, self).handle_node(runner, from_node, output_parent)
         if node is not None:
             node.set('href',
-                     'https://www.biblegateway.com/passage/?search={0}&version=NIV'.format(urllib.quote(from_node.attrib['passage'])))
+                     'https://www.biblegateway.com/passage/?search={0}&version=NIV'.format(
+                         urllib.quote(fix_passage_ref(from_node.attrib['passage']))))
         return descend, node
 
 class Fallback(UNWRAP('*')):
@@ -250,8 +254,10 @@ HANDLERS = [
     DIV('div5', 'div', DIVADEFS),
 
     MAP('verse', 'div', dplus(ADEFS, {ADD: [('class', 'verse')]})),
+    MAP('scripCom', 'div', dplus(ADEFS, {ADD: [('class', 'scripCom')]})),
     LineHandler,
     ScripRefHandler,
+    MAP('pb', 'br', dplus(ADEFS, {'n': REMOVE, 'href': REMOVE})),
 
     UNWRAP('added'),
     DELETE('deleted'),
@@ -274,15 +280,36 @@ HANDLERS = [
     MAP('h4', 'h4', ADEFS),
     MAP('h5', 'h5', ADEFS),
     MAP('h6', 'h6', ADEFS),
+    MAP('table', 'table', ADEFS),
+    MAP('tr', 'tr', ADEFS),
+    MAP('td', 'td', ADEFS),
+    MAP('th', 'th', ADEFS),
+    MAP('br', 'br', ADEFS),
+    MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'height': COPY, 'width': COPY})),
+    MAP('ul', 'ul', ADEFS),
+    MAP('ol', 'ol', ADEFS),
+    MAP('li', 'li', ADEFS),
+    MAP('blockquote', 'blockquote', ADEFS),
+    MAP('address', 'address', ADEFS),
+    MAP('hr', 'hr', ADEFS),
 
     # Inline
     MAP('a', 'a', dplus(ADEFS, {'href': COPY, 'name': COPY})),
     MAP('b', 'b', ADEFS),
     MAP('i', 'i', ADEFS),
+    MAP('em', 'em', ADEFS),
+    MAP('strong', 'strong', ADEFS),
+    MAP('span', 'span', ADEFS),
+
     # TODO ... maps for every element we want to handle
 
     # Collectors for metadata
 
+    # Collectors for TOC
+
+    # Handling note
+
+    # Handling scripContext if possible
 
 ]
 
@@ -450,6 +477,8 @@ def test_attribs():
         '<html>\n  <p id="foo">Hi</p>\n</html>'
     assert thml_to_html('<ThML><verse>line</verse></ThML>').strip() == \
         '<html>\n  <div class="verse">line</div>\n</html>'
+    assert thml_to_html('<ThML><pb n="ii" id="i"/></ThML>').strip() == \
+        '<html>\n  <br id="i"/>\n</html>'
 
 if __name__ == '__main__':
     main()
