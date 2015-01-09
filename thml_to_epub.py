@@ -224,7 +224,7 @@ class ScripRefHandler(MAP('scripRef', 'a',
                      'https://www.biblegateway.com/passage/?search={0}&version=NIV'.format(
                          urllib.quote(fix_passage_ref(from_node.attrib['passage']))))
         else:
-            sys.stdout.write("WARNING: can't get 'passage' from scripRef attribs {0} on line {1}\n".format(from_node.attrib, from_node.sourceline))
+            sys.stderr.write("WARNING: can't get 'passage' from scripRef attribs {0} on line {1}\n".format(from_node.attrib, from_node.sourceline))
             node.set('href', '#')
         return descend, node
 
