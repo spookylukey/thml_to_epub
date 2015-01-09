@@ -38,6 +38,13 @@ def add_tail(node, tail):
     else:
         node.tail += tail
 
+def append_text(parent, text):
+    c = parent.getchildren()
+    if c:
+        add_tail(c[-1], text)
+    else:
+        add_text(parent, text)
+
 ### Utils ###
 
 def dplus(d1, d2):
@@ -74,15 +81,8 @@ def UNWRAP(node_name):
     class nodehandler(Handler):
         def handle_node(self, runner, from_node, output_parent):
             # Care with text and tail
-            c = output_parent.getchildren()
-            if c:
-                add_tail(c[-1], from_node.text)
-            else:
-                add_text(output_parent, from_node.text)
-            if c:
-                add_tail(c[-1], from_node.tail)
-            else:
-                add_text(output_parent, from_node.tail)
+            append_text(output_parent, from_node.text)
+            append_text(output_parent, from_node.tail)
             return True, None
 
     nodehandler.from_node_name = node_name
@@ -97,11 +97,7 @@ def DELETE(node_name):
     class nodehandler(Handler):
         def handle_node(self, runner, from_node, output_parent):
             # We have preserve 'tail' text
-            c = output_parent.getchildren()
-            if c:
-                add_tail(c[-1], from_node.tail)
-            else:
-                add_text(output_parent, from_node.tail)
+            append_text(output_parent, from_node.tail)
             return False, None
 
     nodehandler.__name__ = 'DELETE({0})'.format(node_name)
