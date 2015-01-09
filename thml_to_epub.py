@@ -1,19 +1,294 @@
 #!/usr/bin/env python
 
-import os.path
-import zipfile
 import sys
+import zipfile
+
+from lxml import etree
 
 
-def main(inputfiles):
-    outputfile = inputfiles[0].replace('.xml', '').replace('.thml', '') + ".rough.epub"
+###### ThML to HTML conversion ######
 
-    print "Creating {0}".format(outputfile)
-    epub = zipfile.ZipFile(outputfile, "w", zipfile.ZIP_DEFLATED)
+### Constants and sentinels ###
+
+REMOVE = object()
+ADD = object()
+COPY = object()
+
+UNHANDLED = object()
+DESCEND = object()
+FINISHED = object()
+HANDLED = [DESCEND, FINISHED]
+
+### etree utilities ###
+
+def add_text(node, text):
+    if text is None:
+        return
+    if node.text is None:
+        node.text = text
+    else:
+        node.text += text
+
+def add_tail(node, tail):
+    if tail is None:
+        return
+    if node.tail is None:
+        node.tail = tail
+    else:
+        node.tail += tail
+
+### Utils ###
+
+def dplus(d1, d2):
+    """
+    'Add' two dictionaries together and return the output.
+    """
+    out = d1.copy()
+    out.update(d2)
+    return out
+
+### Handler classes ###
+
+# Attribute default map:
+ADEFS = {
+    'style': COPY,
+    'id': COPY,
+    'class': COPY,
+    'lang': COPY,
+    'title': COPY,
+}
+
+class Handler(object):
+    def match(self, from_node):
+        return self.from_node_name == '*' or from_node.tag == self.from_node_name
+
+    def post_process(self, runner, output_dom):
+        pass
+
+
+def UNWRAP(node_name):
+    """
+    Returns a Handler that unwraps a node, yanking children up.
+    """
+    class nodehandler(Handler):
+        def handle_node(self, runner, from_node, output_parent):
+            # Care with text and tail
+            c = output_parent.getchildren()
+            if c:
+                add_tail(c[-1], from_node.text)
+            else:
+                add_text(output_parent, from_node.text)
+            if c:
+                add_tail(c[-1], from_node.tail)
+            else:
+                add_text(output_parent, from_node.tail)
+            return True, None
+
+    nodehandler.from_node_name = node_name
+    nodehandler.__name__ = 'UNWRAP({0})'.format(node_name)
+    return nodehandler
+
+
+def DELETE(node_name):
+    """
+    Returns a Handler that deletes a node (including children)
+    """
+    class nodehandler(Handler):
+        def handle_node(self, runner, from_node, output_parent):
+            # We have preserve 'tail' text
+            c = output_parent.getchildren()
+            if c:
+                add_tail(c[-1], from_node.tail)
+            else:
+                add_text(output_parent, from_node.tail)
+            return False, None
+
+    nodehandler.__name__ = 'DELETE({0})'.format(node_name)
+    nodehandler.from_node_name = node_name
+    return nodehandler
+
+
+def MAP(from_node_name, to_node_name, attribs, collector=None):
+    """Returns a Handler that maps from one node to another,
+    with handled attributes given in attribs.
+
+    attribs should be a dictionary mapping attribute names in source using
+    REMOVE or COPY constants. It can also have an ADD key which is handled
+    specially - it should be a list of attributes to add as (name, value)
+    pairs.
+
+    """
+    class nodehandler(Handler):
+        def handle_node(self, runner, from_node, output_parent):
+            e = etree.Element(self.to_node_name)
+            e.text = from_node.text
+            e.tail = from_node.tail
+            output_parent.append(e)
+            # Handle attributes
+            for k, v in from_node.attrib.items():
+                if k not in self.attribs:
+                    sys.stderr.write("WARNING: ignoring unknown attribute {0} on {1} node, line {2}\n".format(k, from_node.tag, from_node.sourceline))
+                else:
+                    replacement = self.attribs[k]
+                    if replacement is COPY:
+                        e.set(k, v)
+                    elif replacement is REMOVE:
+                        pass
+                    else:
+                        raise Exception("Replacement {0} not understood".format(repr(replacement)))
+            if ADD in self.attribs:
+                for k, v in self.attribs[ADD]:
+                    e.set(k, v)
+
+            return True, e
+
+    nodehandler.__name__ = 'MAP({0}, {1})'.format(from_node_name, to_node_name)
+    nodehandler.from_node_name = from_node_name
+    nodehandler.to_node_name = to_node_name
+    nodehandler.attribs = attribs
+
+    return nodehandler
+
+
+def DIV(from_node_name, to_node_name, attribs):
+    cls = MAP(from_node_name, to_node_name, attribs)
+    class divhandler(cls):
+        def handle_node(self, runner, from_node, output_parent):
+            retval = super(divhandler, self).handle_node(runner, from_node, output_parent)
+            # TODO - collect info for headings/TOC
+            return retval
+        def post_process(self, runner, output_dom):
+            pass # TODO - create TOC
+    return divhandler
+
+class CollectNodesMixin(object):
+    def __init__(self):
+        super(CollectNodesMixin, self).__init__()
+        self.collected_nodes = []
+
+    def handle_node(self, runner, from_node, output_parent):
+        descend, node = super(CollectNodesMixin, self).handle_node(runner, from_node, output_parent)
+        if node is not None:
+            self.collected_nodes.append(node)
+        return descend, node
+
+
+class LineHandler(CollectNodesMixin,
+                  MAP('l', 'span', dplus(ADEFS, {ADD: [('class', 'line')]}))):
+    def post_process(self, runner, output_dom):
+        # Need a 'BR' to appear right at the end of the line
+        for node in self.collected_nodes:
+            node.append(etree.Element('br'))
+
+class Fallback(UNWRAP('*')):
+    pass
+
+
+# Define set of classes that will handle the transformation.
+HANDLERS = [
+    # TODO ThML.head etc
+
+    # We list all HTML element explicitly, even if they are the same in ThML and
+    # HTML, because we want to make sure that we match everything so we can
+    # produce valid XHTML.
+
+    ## ThML elements
+    MAP('ThML', 'html', {}),
+    MAP('ThML.head', 'head', {}),
+    MAP('ThML.body', 'body', {}),
+    DIV('div1', 'div', dplus(ADEFS, {'n': REMOVE})),
+    DIV('div2', 'div', dplus(ADEFS, {'n': REMOVE})),
+    DIV('div3', 'div', dplus(ADEFS, {'n': REMOVE})),
+    DIV('div4', 'div', dplus(ADEFS, {'n': REMOVE})),
+    DIV('div5', 'div', dplus(ADEFS, {'n': REMOVE})),
+    MAP('verse', 'div', dplus(ADEFS, {ADD: [('class', 'verse')]})),
+    LineHandler,
+
+    UNWRAP('added'),
+    DELETE('deleted'),
+
+    ## HTML elements
+    # Header:
+    MAP('title', 'title', {}),
+
+    # Block
+    MAP('p', 'p', ADEFS),
+    MAP('h1', 'h1', ADEFS),
+    MAP('h2', 'h2', ADEFS),
+    MAP('h3', 'h3', ADEFS),
+    MAP('h4', 'h4', ADEFS),
+    MAP('h5', 'h5', ADEFS),
+    MAP('h6', 'h6', ADEFS),
+
+    # Inline
+    MAP('a', 'a', dplus(ADEFS, {'href': COPY, 'name': COPY})),
+    MAP('b', 'b', ADEFS),
+    MAP('i', 'i', ADEFS),
+    # TODO ... maps for every element we want to handle
+
+    # Collectors for metadata
+
+
+]
+
+
+class ThmlToHtml(object):
+    def __init__(self):
+        self.handlers = [cls() for cls in HANDLERS]
+
+    def transform(self, thml):
+        input_root = etree.fromstring(thml)
+        output_root = etree.Element('root') # Temporary container that we will strip again
+        self.fallback = Fallback()
+        self.descend(input_root, output_root)
+        children = output_root.getchildren()
+        assert len(children) == 1
+        output_dom = children[0]
+        self.post_process(output_dom)
+        return etree.tostring(output_dom, pretty_print=True)
+
+    def descend(self, input_node, output_parent_node):
+        retvals = []
+        matched = False
+        for handler in self.handlers:
+            if handler.match(input_node):
+                matched = True
+                retvals.append(handler.handle_node(self, input_node, output_parent_node))
+        if not matched:
+            sys.stderr.write("WARNING: Element {0} on line {1} not properly handled\n".format(input_node.tag, input_node.sourceline))
+            retvals.append(self.fallback.handle_node(self, input_node, output_parent_node))
+        should_descend = any(d for d, n in retvals)
+        if should_descend:
+            assert all(d for d, n in retvals)
+        if not should_descend:
+            return
+        new_parents = [n for d, n in retvals if n is not None]
+        if len(new_parents) > 1:
+            raise Exception("More than one parent node returned for {0}".format(input_node.tag))
+        if len(new_parents) == 1:
+            new_parent = new_parents[0]
+        else:
+            new_parent = output_parent_node # Same parent (for case of unwrapping)
+        for node in input_node.getchildren():
+            self.descend(node, new_parent)
+
+    def post_process(self, output_dom):
+        for handler in self.handlers:
+            handler.post_process(self, output_dom)
+
+
+# Simple interface:
+def thml_to_html(input_thml):
+    return ThmlToHtml().transform(input_thml)
+
+
+### HTML to epub ###
+
+
+def create_epub(input_html, outputfilename):
+    epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
 
     epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
-
-
     # We need an index file, that lists all other HTML files
     # This index file itself is referenced in the META_INF/container.xml
     # file
@@ -41,12 +316,12 @@ def main(inputfiles):
     spine = ""
 
     # Write each HTML file to the ebook, collect information for the index
-    for i, html_file in enumerate(inputfiles):
-        basename = os.path.basename(html_file)
+    for i, html_data in enumerate(input_html):
+        basename = "{0}.html".format(i)
         manifest += '<item id="file_%s" href="%s" media-type="application/xhtml+xml"/>' % (
             i+1, basename)
         spine += '<itemref idref="file_%s" />' % (i+1)
-        epub.write(html_file, 'OEBPS/'+basename, zipfile.ZIP_DEFLATED)
+        epub.writestr('OEBPS/' + basename, html_data, zipfile.ZIP_DEFLATED)
 
     # Finally, write the index
     epub.writestr('OEBPS/Content.opf', index_tpl % {
@@ -56,5 +331,58 @@ def main(inputfiles):
     epub.close()
 
 
+### Main
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("thml_file", nargs='+')
+
+def main():
+    args = parser.parse_args()
+    input_files = args.thml_file
+    outputfile = input_files[0].replace('.xml', '').replace('.thml', '') + ".rough.epub"
+
+    sys.stdout.write("Creating {0}\n".format(outputfile))
+    input_thml = [file(input_file).read() for input_file in input_files]
+    input_html = map(thml_to_html, input_thml)
+    create_epub(input_html, outputfile)
+
+
+def test_elems():
+    assert thml_to_html('<ThML></ThML>').strip() == \
+        '<html/>'
+    assert thml_to_html('<ThML>Hello</ThML>').strip() == \
+        '<html>Hello</html>'
+    assert thml_to_html('<ThML><p>Hello</p></ThML>').strip() == \
+        '<html>\n  <p>Hello</p>\n</html>'
+    assert thml_to_html('<ThML>Some <deleted>deleted</deleted>text</ThML>').strip() == \
+        '<html>Some text</html>'
+    assert thml_to_html('<ThML>Some <b>not deleted text</b> and <deleted>deleted</deleted>text</ThML>').strip() == \
+        '<html>Some <b>not deleted text</b> and text</html>'
+    assert thml_to_html('<ThML>Some <deleted><b>really deleted</b></deleted>text</ThML>').strip() == \
+        '<html>Some text</html>'
+    assert thml_to_html('<ThML>Some <added>added</added> text</ThML>').strip() == \
+        '<html>Some added text</html>'
+    assert thml_to_html('<ThML><added>Some added text</added></ThML>').strip() == \
+        '<html>Some added text</html>'
+    assert thml_to_html('<ThML>Some <b>bold</b> and <added>added</added> text</ThML>').strip() == \
+        '<html>Some <b>bold</b> and added text</html>'
+    assert thml_to_html('<ThML>Some <added>added <b>and bold</b> text</added></ThML>').strip() == \
+        '<html>Some added <b>and bold</b> text</html>'
+    assert thml_to_html('<ThML><l>A line</l></ThML>').strip() == \
+        '<html>\n  <span class="line">A line<br/></span>\n</html>'
+    assert thml_to_html('<ThML><ThML.head><title>The Title</title></ThML.head></ThML>').strip() == \
+        '<html>\n  <head>\n    <title>The Title</title>\n  </head>\n</html>'
+
+def test_divs():
+    assert thml_to_html('<ThML><div1><div2>Some text</div2>And more</div1></ThML>').strip() == \
+        '<html>\n  <div><div>Some text</div>And more</div>\n</html>'
+
+def test_attribs():
+    assert thml_to_html('<ThML><p id="foo">Hi</p></ThML>').strip() == \
+        '<html>\n  <p id="foo">Hi</p>\n</html>'
+    assert thml_to_html('<ThML><verse>line</verse></ThML>').strip() == \
+        '<html>\n  <div class="verse">line</div>\n</html>'
+
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()
