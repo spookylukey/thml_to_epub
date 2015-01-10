@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from collections import defaultdict
+import re
 import sys
 import urllib
 import zipfile
@@ -55,6 +57,10 @@ def dplus(d1, d2):
     out.update(d2)
     return out
 
+def html_escape(text):
+    return (text.replace('&', '&amp;').replace('<', '&lt;')
+            .replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;'))
+
 ### Handler classes ###
 
 # Attribute default map:
@@ -75,10 +81,10 @@ class Handler(object):
         return (self.from_node_name == '*' or from_node.tag == self.from_node_name) and \
             self.match_attributes(from_node.attrib)
 
-    def post_process(self, runner, output_dom):
+    def post_process(self, converter, output_dom):
         pass
 
-    def handle_node(self, runner, from_node, output_parent):
+    def handle_node(self, converter, from_node, output_parent):
         # This method should add everything necessary
         # to output_parent (which is an ElementTree node of the
         # parent node in the output document) from
@@ -111,7 +117,7 @@ def UNWRAP(node_name):
     Returns a Handler that unwraps a node, yanking children up.
     """
     class nodehandler(Handler):
-        def handle_node(self, runner, from_node, output_parent):
+        def handle_node(self, converter, from_node, output_parent):
             # Care with text and tail
             append_text(output_parent, from_node.text)
             append_text(output_parent, from_node.tail)
@@ -122,12 +128,26 @@ def UNWRAP(node_name):
     return nodehandler
 
 
+def READ(node_name):
+    """
+    Returns a Handler that does nothing with a node
+    except read its children
+    """
+    class nodehandler(Handler):
+        def handle_node(self, converter, from_node, output_parent):
+            return True, output_parent
+
+    nodehandler.from_node_name = node_name
+    nodehandler.__name__ = "READ({0})".format(node_name)
+    return nodehandler
+
+
 def DELETE(node_name, attrib_matcher=None):
     """
     Returns a Handler that deletes a node (including children)
     """
     class nodehandler(Handler):
-        def handle_node(self, runner, from_node, output_parent):
+        def handle_node(self, converter, from_node, output_parent):
             # We have preserve 'tail' text
             append_text(output_parent, from_node.tail)
             return False, None
@@ -149,7 +169,7 @@ def MAP(from_node_name, to_node_name, attribs, attrib_matcher=None):
 
     """
     class nodehandler(Handler):
-        def handle_node(self, runner, from_node, output_parent):
+        def handle_node(self, converter, from_node, output_parent):
             e = etree.Element(self.to_node_name)
             e.text = from_node.text
             e.tail = from_node.tail
@@ -184,11 +204,11 @@ def MAP(from_node_name, to_node_name, attribs, attrib_matcher=None):
 def DIV(from_node_name, to_node_name, attribs):
     cls = MAP(from_node_name, to_node_name, attribs)
     class divhandler(cls):
-        def handle_node(self, runner, from_node, output_parent):
-            retval = super(divhandler, self).handle_node(runner, from_node, output_parent)
+        def handle_node(self, converter, from_node, output_parent):
+            retval = super(divhandler, self).handle_node(converter, from_node, output_parent)
             # TODO - collect info for headings/TOC
             return retval
-        def post_process(self, runner, output_dom):
+        def post_process(self, converter, output_dom):
             pass # TODO - create TOC
     return divhandler
 
@@ -197,8 +217,8 @@ class CollectNodesMixin(object):
         super(CollectNodesMixin, self).__init__()
         self.collected_nodes = []
 
-    def handle_node(self, runner, from_node, output_parent):
-        descend, node = super(CollectNodesMixin, self).handle_node(runner, from_node, output_parent)
+    def handle_node(self, converter, from_node, output_parent):
+        descend, node = super(CollectNodesMixin, self).handle_node(converter, from_node, output_parent)
         if node is not None:
             self.collected_nodes.append(node)
         return descend, node
@@ -206,7 +226,7 @@ class CollectNodesMixin(object):
 
 class LineHandler(CollectNodesMixin,
                   MAP('l', 'span', dplus(ADEFS, {ADD: [('class', 'line')]}))):
-    def post_process(self, runner, output_dom):
+    def post_process(self, converter, output_dom):
         # Need a 'BR' to appear right at the end of the line
         for node in self.collected_nodes:
             node.append(etree.Element('br'))
@@ -217,8 +237,8 @@ def fix_passage_ref(ref):
 
 class ScripRefHandler(MAP('scripRef', 'a',
                           dplus(ADEFS, {'passage': REMOVE, 'parsed': REMOVE, 'osisRef': REMOVE}))):
-    def handle_node(self, runner, from_node, output_parent):
-        descend, node = super(ScripRefHandler, self).handle_node(runner, from_node, output_parent)
+    def handle_node(self, converter, from_node, output_parent):
+        descend, node = super(ScripRefHandler, self).handle_node(converter, from_node, output_parent)
         if node is not None and 'passage' in from_node.attrib:
             node.set('href',
                      'https://www.biblegateway.com/passage/?search={0}&version=NIV'.format(
@@ -244,7 +264,7 @@ class NoteHandler(Handler):
         self.generated_anchor_id_num += 1
         return "_genaid_{0}".format(self.generated_anchor_id_num)
 
-    def handle_node(self, runner, from_node, output_parent):
+    def handle_node(self, converter, from_node, output_parent):
         # Build note
         note_id = from_node.attrib.get('id', None)
         if note_id is None:
@@ -278,7 +298,7 @@ class NoteHandler(Handler):
         self.notes.append((anchor, note))
         return True, note # Need the children elements of <note> to be added
 
-    def post_process(self, runner, output_dom):
+    def post_process(self, converter, output_dom):
         note_containers = {}
 
         for anchor, note in self.notes:
@@ -293,12 +313,34 @@ class NoteHandler(Handler):
                 container = note_containers[div]
             container.append(note)
 
+
 def find_outermost_div(node, last_div=None):
     if node is None:
         return last_div
     if node.tag == 'div':
         last_div = node
     return find_outermost_div(node.getparent(), last_div=last_div)
+
+
+class DCMetaDataCollector(Handler):
+    def __init__(self):
+        self.dc_metadata = defaultdict(list)
+
+    def match(self, from_node):
+        parent = from_node.getparent()
+        return parent is not None and parent.tag == "DC"
+
+    def handle_node(self, converter, from_node, output_parent):
+        if from_node.text is not None:
+            item = (from_node.text, dict(from_node.attrib))
+            name = from_node.tag.lower().replace('.', ':')
+            if item not in self.dc_metadata[name]:
+                self.dc_metadata[name].append(item)
+        return False, None
+
+    def post_process(self, converter, output_dom):
+        converter.metadata.update(self.dc_metadata)
+
 
 class Fallback(UNWRAP('*')):
     pass
@@ -386,7 +428,20 @@ HANDLERS = [
     # TODO ... maps for every element we want to handle
 
     # Collectors for metadata
+    READ('DC'),
+    READ('electronicEdInfo'),
+    DCMetaDataCollector,
 
+    DELETE('generalInfo'),
+    DELETE('printSourceInfo'),
+    DELETE('publisherID'),
+    DELETE('authorID'),
+    DELETE('bookID'),
+    DELETE('version'),
+    DELETE('series'),
+    DELETE('editorialComments'),
+    DELETE('revisionHistory'),
+    DELETE('status'),
     # Collectors for TOC
 
     # Handling note
@@ -400,6 +455,7 @@ DOCTYPE = """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.or
 class ThmlToHtml(object):
     def __init__(self):
         self.handlers = [cls() for cls in HANDLERS]
+        self.metadata = {}
 
     def transform(self, thml, full_xml=False):
         input_root = etree.fromstring(thml)
@@ -456,35 +512,65 @@ def thml_to_html(input_thml):
 ### HTML to epub ###
 
 
-def create_epub(input_html_pairs, outputfilename):
+def create_epub(input_html_pairs, metadata, outputfilename):
     epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
 
     epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
     # We need an index file, that lists all other HTML files
     # This index file itself is referenced in the META_INF/container.xml
     # file
-    epub.writestr("META-INF/container.xml", '''<container version="1.0"
-               xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-      <rootfiles>
-        <rootfile full-path="OEBPS/Content.opf" media-type="application/oebps-package+xml"/>
-      </rootfiles>
-    </container>''', zipfile.ZIP_STORED);
+    epub.writestr("META-INF/container.xml", '''<?xml version="1.0"?>
+<container version="1.0"
+           xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>''', zipfile.ZIP_STORED);
 
     # The index file is another XML file, living per convention
-    # in OEBPS/Content.xml
-    index_tpl = '''<package version="2.0"
-      xmlns="http://www.idpf.org/2007/opf">
-      <metadata/>
-      <manifest>
-        %(manifest)s
-      </manifest>
-      <spine toc="ncx">
-        %(spine)s
-      </spine>
-    </package>'''
+    # in OEBPS/content.opf
+    index_tpl = '''<?xml version='1.0' encoding='utf-8'?>
+<package version="2.0"
+         xmlns="http://www.idpf.org/2007/opf"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         unique-identifier="%(identifier)s"
+>
+  <metadata>
+    %(metadata)s
+  </metadata>
+  <manifest>
+    %(manifest)s
+  </manifest>
+  <spine toc="ncx">
+    %(spine)s
+  </spine>
+</package>'''
 
     manifest = ""
     spine = ""
+
+    ## Metadata:
+    m = []
+    for name, lst in metadata.items():
+        for i, (value, attribs) in enumerate(lst):
+            if name == 'dc:identifier' and 'id' not in attribs:
+                attribs['id'] = 'id{0}'.format(i)
+            if attribs:
+                attribs_html = ' ' + ' '.join('{0}="{1}"'.format(k, html_escape(v))
+                                 for k, v in attribs.items())
+            else:
+                attribs_html = ''
+            m.append('<{tag}{attribs_html}>{value}</{tag}>'.format(
+                tag=name,
+                attribs_html=attribs_html,
+                value=html_escape(value)))
+    metadata_str = '\n'.join(m)
+
+    # uniquer-identifier - pick the first one available.
+    if 'dc:identifier' in metadata:
+        identifier = metadata['dc:identifier'][0][1]['id']
+    else:
+        identifier = 'error'
 
     # Write each HTML file to the ebook, collect information for the index
     for i, (src_name, html_data) in enumerate(input_html_pairs):
@@ -495,10 +581,14 @@ def create_epub(input_html_pairs, outputfilename):
         epub.writestr('OEBPS/' + basename, html_data, zipfile.ZIP_DEFLATED)
 
     # Finally, write the index
-    epub.writestr('OEBPS/Content.opf', index_tpl % {
-      'manifest': manifest,
-      'spine': spine,
-    })
+    content_opf = index_tpl % {
+        'manifest': manifest,
+        'spine': spine,
+        'metadata': metadata_str,
+        'identifier': identifier,
+    }
+    print content_opf
+    epub.writestr('OEBPS/content.opf', content_opf)
     epub.close()
 
 
@@ -514,9 +604,9 @@ def main():
     outputfile = input_files[0].replace('.xml', '').replace('.thml', '') + ".rough.epub"
 
     input_thml_pairs = [(fn, file(fn).read()) for fn in input_files]
-    transformer = ThmlToHtml()
-    input_html_pairs = [(fn, transformer.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
-    create_epub(input_html_pairs, outputfile)
+    converter = ThmlToHtml()
+    input_html_pairs = [(fn, converter.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
+    create_epub(input_html_pairs, converter.metadata, outputfile)
 
 
 def test_elems():
@@ -572,5 +662,48 @@ def test_notes():
             '  </div>\n'
             '</html>')
 
+def test_metadata():
+    converter = ThmlToHtml()
+    html = converter.transform("""<ThML>
+<ThML.head>
+<generalInfo>
+ <description/>
+ <firstPublished/>
+ <pubHistory/>
+ <comments/>
+</generalInfo>
+
+<printSourceInfo>
+ <published>Mickey Mouse Press, 1950</published>
+</printSourceInfo>
+
+<electronicEdInfo>
+ <publisherID>abcd</publisherID>
+ <authorID>daffy</authorID>
+ <bookID>fribble</bookID>
+ <version>1.0</version>
+ <series/>
+ <editorialComments/>
+ <revisionHistory/>
+ <status>Some status.</status>
+
+ <DC>
+ <DC.Title>Interesting Things</DC.Title>
+ <DC.Creator sub="Author" scheme="file-as">Daffy Duck</DC.Creator>
+ <DC.Creator sub="Author" scheme="short-form">D. Duck</DC.Creator>
+ <DC.Creator sub="Author" scheme="abcd">daffy</DC.Creator>
+ </DC>
+</electronicEdInfo>
+</ThML.head>
+</ThML>
+""")
+    assert re.match('<html>\\s*<head>\\s*</head>\\s*</html>\\s*', html) is not None
+    assert converter.metadata['dc.title'] == [("Interesting Things", {})]
+    assert converter.metadata['dc.creator'] == [("Daffy Duck", {'sub': 'Author',
+                                                                'scheme': 'file-as'}),
+                                                ("D. Duck", {'sub': 'Author',
+                                                             'scheme': 'short-form'}),
+                                                ("daffy", {'sub': 'Author',
+                                                           'scheme': 'abcd'})]
 if __name__ == '__main__':
     main()
