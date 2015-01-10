@@ -513,7 +513,6 @@ def main():
     input_files = args.thml_file
     outputfile = input_files[0].replace('.xml', '').replace('.thml', '') + ".rough.epub"
 
-    sys.stdout.write("Creating {0}\n".format(outputfile))
     input_thml_pairs = [(fn, file(fn).read()) for fn in input_files]
     transformer = ThmlToHtml()
     input_html_pairs = [(fn, transformer.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
