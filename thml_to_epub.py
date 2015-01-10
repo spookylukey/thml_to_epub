@@ -238,11 +238,11 @@ class NoteHandler(Handler):
 
     def next_id(self):
         self.generated_id_num += 1
-        return "generatedid_{0}".format(self.generated_id_num)
+        return "_genid_{0}".format(self.generated_id_num)
 
     def next_anchor_id(self):
         self.generated_anchor_id_num += 1
-        return "generatedanchorid_{0}".format(self.generated_anchor_id_num)
+        return "_genaid_{0}".format(self.generated_anchor_id_num)
 
     def handle_node(self, runner, from_node, output_parent):
         # Build note
@@ -261,14 +261,15 @@ class NoteHandler(Handler):
         anchor.sourceline = from_node.sourceline
         anchor.tail = from_node.tail
         sup = etree.Element("sup")
-        sup.text = "[{0}]".format(len(self.notes)+1)
+        footnote_num = len(self.notes) + 1
+        sup.text = "[{0}]".format(footnote_num)
         anchor.append(sup)
         output_parent.append(anchor)
 
         # Return anchor
         return_anchor = etree.Element('a',
                                       {'href': '#' + anchor.attrib['id']})
-        return_anchor.text = "[^back]"
+        return_anchor.text = "[^{0}]".format(footnote_num)
         return_anchor.tail = " "
         # Put the text of the note after the return anchor:
         note.append(return_anchor)
@@ -565,11 +566,12 @@ def test_notes():
     assert (thml_to_html('<ThML><div1><p>Peter<note>a <i>complete</i> idiot</note> said...</p></div1></ThML>').strip() ==
             '<html>\n'
             '  <div>\n'
-            '    <p>Peter<a href="#generatedid_1" id="generatedanchorid_1"><sup>[1]</sup></a> said...</p>\n'
+            '    <p>Peter<a href="#_genid_1" id="_genaid_1"><sup>[1]</sup></a> said...</p>\n'
             '    <div class="notes">\n'
-            '      <div class="note" id="generatedid_1"><a href="#generatedanchorid_1">[^back]</a> a <i>complete</i> idiot</div>\n'
+            '      <div class="note" id="_genid_1"><a href="#_genaid_1">[^1]</a> a <i>complete</i> idiot</div>\n'
             '    </div>\n'
             '  </div>\n'
             '</html>')
+
 if __name__ == '__main__':
     main()
