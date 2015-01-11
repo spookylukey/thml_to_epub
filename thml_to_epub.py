@@ -5,6 +5,7 @@ import argparse
 import re
 import sys
 import urllib
+import uuid
 import zipfile
 
 from lxml import etree
@@ -572,7 +573,7 @@ def create_epub(input_html_pairs, metadata, outputfilename):
 <package version="2.0"
          xmlns="http://www.idpf.org/2007/opf"
          xmlns:dc="http://purl.org/dc/elements/1.1/"
-         unique-identifier="{identifier}"
+         unique-identifier="{identifier_id}"
 >
   <metadata>
     {metadata}
@@ -587,6 +588,21 @@ def create_epub(input_html_pairs, metadata, outputfilename):
 
     manifest = ""
     spine = ""
+
+    # uniquer-identifier - pick the first one available.
+    if 'dc:identifier' in metadata:
+        # Ensure they all have 'id' attributes
+        for i, (value, attribs) in enumerate(metadata['dc:identifier']):
+            if 'id' not in attribs:
+                attribs['id'] = 'id{0}'.format(i)
+            if i == 0:
+                identifier_id = attribs['id']
+                identifier_val = value
+    else:
+        # Or make one up
+        identifier_id = 'bookuuid'
+        identifier_val =  uuid.uuid4().get_urn()
+        metadata['dc:identifier'] = [(identifier_val, {'id': identifier_id})]
 
     ## Metadata:
     m = []
@@ -605,14 +621,9 @@ def create_epub(input_html_pairs, metadata, outputfilename):
                 value=html_escape(value)))
     metadata_str = '\n'.join(m)
 
-    # uniquer-identifier - pick the first one available.
-    if 'dc:identifier' in metadata:
-        identifier = metadata['dc:identifier'][0][1]['id']
-    else:
-        identifier = 'error'
 
     content_opf = index_tpl.format(
-        identifier=identifier,
+        identifier_id=identifier_id,
         manifest=manifest,
         spine=spine,
         metadata=metadata_str,
