@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from collections import defaultdict
+import argparse
 import re
 import sys
 import urllib
@@ -57,8 +58,14 @@ def dplus(d1, d2):
     out.update(d2)
     return out
 
+def utf8(text):
+    if isinstance(text, unicode):
+        return text.encode('utf-8')
+    else:
+        return text
+
 def html_escape(text):
-    return (text.replace('&', '&amp;').replace('<', '&lt;')
+    return (utf8(text).replace('&', '&amp;').replace('<', '&lt;')
             .replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;'))
 
 ### Handler classes ###
@@ -70,6 +77,7 @@ ADEFS = {
     'class': COPY,
     'lang': COPY,
     'title': COPY,
+    'dir': COPY,
 }
 
 # Base class
@@ -233,10 +241,13 @@ class LineHandler(CollectNodesMixin,
 
 def fix_passage_ref(ref):
     # TODO handle osisRef or passage better - expand abbreviations
-    return ref.replace('.', ' ')
+    return utf8(ref).replace('.', ' ')
 
 class ScripRefHandler(MAP('scripRef', 'a',
-                          dplus(ADEFS, {'passage': REMOVE, 'parsed': REMOVE, 'osisRef': REMOVE}))):
+                          dplus(ADEFS, {'passage': REMOVE,
+                                        'parsed': REMOVE,
+                                        'version': REMOVE,
+                                        'osisRef': REMOVE}))):
     def handle_node(self, converter, from_node, output_parent):
         descend, node = super(ScripRefHandler, self).handle_node(converter, from_node, output_parent)
         if node is not None and 'passage' in from_node.attrib:
@@ -351,8 +362,21 @@ DIVADEFS = dplus(ADEFS,
                   'shorttitle': REMOVE,
                   'title': REMOVE,
                   'progress': REMOVE,
+                  'type': REMOVE,
+                  'filebreak': REMOVE,
                   'prev': REMOVE,
                   'next': REMOVE,})
+
+TADEFS =  dplus(ADEFS, {'align': COPY,
+                        'valign': COPY,
+                        'border': COPY,
+                        'cellspacing': COPY,
+                        'cellpadding': COPY,
+                        'rowspan': COPY,
+                        'colspan': COPY,
+                        'width': COPY,
+                    })
+
 # Define set of classes that will handle the transformation.
 HANDLERS = [
     # TODO ThML.head etc
@@ -370,7 +394,9 @@ HANDLERS = [
     DIV('div3', 'div', DIVADEFS),
     DIV('div4', 'div', DIVADEFS),
     DIV('div5', 'div', DIVADEFS),
-    MAP('verse', 'div', dplus(ADEFS, {ADD: [('class', 'verse')]})),
+    MAP('verse', 'div', dplus(ADEFS, {ADD: [('class', 'verse')],
+                                      'type': REMOVE,
+                                  })),
     MAP('scripCom', 'div', dplus(ADEFS,
                                  {ADD: [('class', 'scripCom')],
                                   'parsed': REMOVE,
@@ -385,6 +411,7 @@ HANDLERS = [
 
     UNWRAP('added'),
     DELETE('deleted'),
+    DELETE('insertIndex'), # TODO - create an index where it is missing?
 
     ## HTML elements
     # Header:
@@ -404,10 +431,16 @@ HANDLERS = [
     MAP('h4', 'h4', ADEFS),
     MAP('h5', 'h5', ADEFS),
     MAP('h6', 'h6', ADEFS),
-    MAP('table', 'table', ADEFS),
-    MAP('tr', 'tr', ADEFS),
-    MAP('td', 'td', ADEFS),
-    MAP('th', 'th', ADEFS),
+    MAP('table', 'table', TADEFS),
+    MAP('tbody', 'tbody', TADEFS),
+    MAP('thead', 'thead', TADEFS),
+    MAP('colgroup', 'colgroup', TADEFS),
+    MAP('col', 'col', TADEFS),
+    MAP('rowgroup', 'rowgroup', TADEFS),
+    MAP('row', 'row', TADEFS),
+    MAP('tr', 'tr', TADEFS),
+    MAP('td', 'td', TADEFS),
+    MAP('th', 'th', TADEFS),
     MAP('br', 'br', ADEFS),
     MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'height': COPY, 'width': COPY})),
     MAP('ul', 'ul', ADEFS),
@@ -424,6 +457,10 @@ HANDLERS = [
     MAP('em', 'em', ADEFS),
     MAP('strong', 'strong', ADEFS),
     MAP('span', 'span', ADEFS),
+    MAP('sub', 'sub', ADEFS),
+    MAP('sup', 'sup', ADEFS),
+    MAP('abbr', 'abbr', ADEFS),
+    MAP('cite', 'cite', ADEFS),
 
     # TODO ... maps for every element we want to handle
 
@@ -433,6 +470,7 @@ HANDLERS = [
     DCMetaDataCollector,
 
     DELETE('generalInfo'),
+    DELETE('comments'),
     DELETE('printSourceInfo'),
     DELETE('publisherID'),
     DELETE('authorID'),
@@ -556,7 +594,7 @@ def create_epub(input_html_pairs, metadata, outputfilename):
             if name == 'dc:identifier' and 'id' not in attribs:
                 attribs['id'] = 'id{0}'.format(i)
             if attribs:
-                attribs_html = ' ' + ' '.join('{0}="{1}"'.format(k, html_escape(v))
+                attribs_html = ' ' + ' '.join('{0}="{1}"'.format(utf8(k), html_escape(v))
                                  for k, v in attribs.items())
             else:
                 attribs_html = ''
@@ -587,13 +625,11 @@ def create_epub(input_html_pairs, metadata, outputfilename):
         'metadata': metadata_str,
         'identifier': identifier,
     }
-    print content_opf
     epub.writestr('OEBPS/content.opf', content_opf)
     epub.close()
 
 
-### Main
-import argparse
+### Main ###
 
 parser = argparse.ArgumentParser()
 parser.add_argument("thml_file", nargs='+')
@@ -608,6 +644,8 @@ def main():
     input_html_pairs = [(fn, converter.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
     create_epub(input_html_pairs, converter.metadata, outputfile)
 
+
+### Tests ###
 
 def test_elems():
     assert thml_to_html('<ThML></ThML>').strip() == \
