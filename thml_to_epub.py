@@ -621,16 +621,6 @@ def create_epub(input_html_pairs, metadata, outputfilename):
                 value=html_escape(value)))
     metadata_str = '\n'.join(m)
 
-
-    content_opf = index_tpl.format(
-        identifier_id=identifier_id,
-        manifest=manifest,
-        spine=spine,
-        metadata=metadata_str,
-    )
-    epub.writestr('OEBPS/content.opf', content_opf)
-
-
     #### HTML content
 
     # Write each HTML file to the ebook, collect information for the index
@@ -641,6 +631,16 @@ def create_epub(input_html_pairs, metadata, outputfilename):
             fileid, basename)
         spine += '<itemref idref="{0}" linear="yes" />'.format(fileid)
         epub.writestr('OEBPS/' + basename, html_data, zipfile.ZIP_DEFLATED)
+
+
+    # Write content_opf, now we have created manifest
+    content_opf = index_tpl.format(
+        identifier_id=identifier_id,
+        manifest=manifest,
+        spine=spine,
+        metadata=metadata_str,
+    )
+    epub.writestr('OEBPS/content.opf', content_opf)
 
     epub.close()
 
