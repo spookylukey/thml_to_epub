@@ -553,6 +553,8 @@ def thml_to_html(input_thml):
 def create_epub(input_html_pairs, metadata, outputfilename):
     epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
 
+    #### mimetype
+
     epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
     # We need an index file, that lists all other HTML files
     # This index file itself is referenced in the META_INF/container.xml
@@ -565,22 +567,21 @@ def create_epub(input_html_pairs, metadata, outputfilename):
   </rootfiles>
 </container>''', zipfile.ZIP_STORED);
 
-    # The index file is another XML file, living per convention
-    # in OEBPS/content.opf
+    #### content.opf
     index_tpl = '''<?xml version='1.0' encoding='utf-8'?>
 <package version="2.0"
          xmlns="http://www.idpf.org/2007/opf"
          xmlns:dc="http://purl.org/dc/elements/1.1/"
-         unique-identifier="%(identifier)s"
+         unique-identifier="{identifier}"
 >
   <metadata>
-    %(metadata)s
+    {metadata}
   </metadata>
   <manifest>
-    %(manifest)s
+    {manifest}
   </manifest>
   <spine toc="ncx">
-    %(spine)s
+    {spine}
   </spine>
 </package>'''
 
@@ -610,22 +611,26 @@ def create_epub(input_html_pairs, metadata, outputfilename):
     else:
         identifier = 'error'
 
+    content_opf = index_tpl.format(
+        identifier=identifier,
+        manifest=manifest,
+        spine=spine,
+        metadata=metadata_str,
+    )
+    epub.writestr('OEBPS/content.opf', content_opf)
+
+
+    #### HTML content
+
     # Write each HTML file to the ebook, collect information for the index
     for i, (src_name, html_data) in enumerate(input_html_pairs):
-        basename = "{0}.html".format(i)
-        manifest += '<item id="file_%s" href="%s" media-type="application/xhtml+xml"/>' % (
-            i+1, basename)
-        spine += '<itemref idref="file_%s" />' % (i+1)
+        basename = "{0}.html".format(i + 1)
+        fileid = "file_{0}".format(i + 1)
+        manifest += '<item id="{0}" href="{1}" media-type="application/xhtml+xml"/>'.format(
+            fileid, basename)
+        spine += '<itemref idref="{0}" linear="yes" />'.format(fileid)
         epub.writestr('OEBPS/' + basename, html_data, zipfile.ZIP_DEFLATED)
 
-    # Finally, write the index
-    content_opf = index_tpl % {
-        'manifest': manifest,
-        'spine': spine,
-        'metadata': metadata_str,
-        'identifier': identifier,
-    }
-    epub.writestr('OEBPS/content.opf', content_opf)
     epub.close()
 
 
