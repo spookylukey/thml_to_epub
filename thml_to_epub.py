@@ -619,16 +619,33 @@ def create_epub(input_html_pairs, metadata, outputfilename):
 
     #### mimetype
     mimetype_file = EpubFile("mimetype", "application/epub+zip")
+    opf_file, identifier_id, identifier_val, title = make_opf_file(content_files, metadata)
+    container_file = make_container_file(opf_file)
+    ncx_file = make_ncx_file(content_files, identifier_id, identifier_val, title)
+    # Write epub
+
+    epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
+    for file in [mimetype_file, container_file, opf_file, ncx_file] + content_files.files:
+        epub.writestr(file.file_name, file.content,
+                      zipfile.ZIP_STORED if file.file_name == 'mimetype' else zipfile.ZIP_DEFLATED)
+
+    epub.close()
+
+
+def make_container_file(opf_file):
     container_file = EpubFile("META-INF/container.xml", '''<?xml version="1.0"?>
 <container version="1.0"
            xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="{0}" media-type="application/oebps-package+xml"/>
   </rootfiles>
-</container>''');
+</container>'''.format(opf_file.file_name))
+    return container_file
 
 
-    #### content.opf
+def make_opf_file(content_files, metadata):
+    opf_file = OpfFile("OEBPS/content.opf", "")
+
     index_tpl = '''<?xml version='1.0' encoding='utf-8'?>
 <package version="2.0"
          xmlns="http://www.idpf.org/2007/opf"
@@ -650,7 +667,6 @@ def create_epub(input_html_pairs, metadata, outputfilename):
 
     manifest = ""
     spine = ""
-
 
     ## Metadata:
 
@@ -715,22 +731,27 @@ def create_epub(input_html_pairs, metadata, outputfilename):
                 value=html_escape(value)))
     metadata_str = '\n'.join(m)
 
-    content_opf_file = OpfFile("OEBPS/content.opf", "")
+
     for f in content_files:
         manifest += '<item id="{0}" href="{1}" media-type="application/xhtml+xml"/>'.format(
-            f.file_id, f.get_path_relative_to_file(content_opf_file))
+            f.file_id, f.get_path_relative_to_file(opf_file))
         spine += '<itemref idref="{0}" linear="yes" />'.format(f.file_id)
 
-    content_opf_file.content = index_tpl.format(
+    opf_file.content = index_tpl.format(
         identifier_id=identifier_id,
         manifest=manifest,
         spine=spine,
         metadata=metadata_str,
     )
 
+    return opf_file, identifier_id, identifier_val, title
+
+
+def make_ncx_file(content_files, identifier_id, identifier_val, title):
+
     #### TOC
     ncx_file = NcxFile("OEBPS/toc.ncx", "")
-    ncx_str = '''<?xml version='1.0' encoding='utf-8'?>
+    ncx_file.content = '''<?xml version='1.0' encoding='utf-8'?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN"
                  "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
@@ -756,17 +777,7 @@ def create_epub(input_html_pairs, metadata, outputfilename):
     title=html_escape(title),
     content_file=content_files[0].get_path_relative_to_file(ncx_file)
     )
-    ncx_file.content = ncx_str
-
-    # Write epub
-
-    epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
-    for file in [mimetype_file, container_file, content_opf_file, ncx_file] + content_files.files:
-        epub.writestr(file.file_name, file.content,
-                      zipfile.ZIP_STORED if file.file_name == 'mimetype' else zipfile.ZIP_DEFLATED)
-
-
-    epub.close()
+    return ncx_file
 
 
 ### Main ###
