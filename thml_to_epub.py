@@ -687,13 +687,40 @@ CREATOR_ROLES = {
     'Author': 'aut',
     'Author of section': 'aut',
     'Editor': 'edt',
+    'Adapter': 'adp',
+    'Annotator': 'ann',
+    'Arranger': 'arr',
+    'Artist': 'art',
+    'Associated name': 'asn',
+    'Author': 'aut',
+    'Bibliographic antecedent': 'ant',
+    'Book producer': 'bkp',
+    'Collaborator': 'clb',
+    'Commentator': 'cmm',
+    'Designer': 'dsr',
+    'Editor': 'edt',
+    'Illustrator': 'ill',
+    'Lyricist': 'lyr',
+    'Metadata contact': 'mdc',
+    'Musician': 'mus',
+    'Narrator': 'nrt',
+    'Other': 'oth',
+    'Photographer': 'pht',
+    'Printer': 'prt',
+    'Redactor': 'red',
+    'Reviewer': 'rev',
+    'Sponsor': 'spn',
+    'Thesis advisor': 'ths',
+    'Transcriber': 'trc',
+    'Translator': 'trl',
+    'Translator and Editor': 'trl',
 }
 
 def map_creator_role(thml_creator_sub):
     # For a given DC.Creator 'sub' value used in ThML docs, return the
     # Dublin Core creator 'role' value.
     if thml_creator_sub not in CREATOR_ROLES:
-        sys.stderr.write("WARNING: Unhandled DC.Creator sub value '{0}'".format(thml_creator_sub))
+        sys.stderr.write("WARNING: Unhandled DC.Creator sub value '{0}'\n".format(thml_creator_sub))
         return "oth"
     return CREATOR_ROLES[thml_creator_sub]
 
