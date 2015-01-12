@@ -75,7 +75,7 @@ def html_escape(text):
 
 # Attribute default map:
 ADEFS = {
-    'style': COPY,
+    'style': REMOVE, # often just causes problems
     'id': COPY,
     'class': COPY,
     'lang': COPY,
@@ -466,11 +466,15 @@ HANDLERS = [
                                   'passage': REMOVE,
                                   'type': REMOVE,
                               })),
+    MAP('scripture', 'blockquote', dplus(ADEFS, {'passage': REMOVE, 'parsed': REMOVE, 'osisRef': REMOVE})),
     LineHandler,
     ScripRefHandler,
     MAP('pb', 'br', dplus(ADEFS, {'n': REMOVE, 'href': REMOVE})),
     NoteHandler,
+    MAP('name', 'span', ADEFS),
+    MAP('attr', 'span', ADEFS),
 
+    UNWRAP('unclear'),
     UNWRAP('added'),
     DELETE('deleted'),
     DELETE('insertIndex'), # TODO - create an index where it is missing?
@@ -511,12 +515,14 @@ HANDLERS = [
     MAP('blockquote', 'blockquote', ADEFS),
     MAP('address', 'address', ADEFS),
     MAP('hr', 'hr', ADEFS),
+    MAP('pre', 'pre', ADEFS),
 
     # Inline
     AnchorHandler,
     MAP('b', 'b', ADEFS),
     MAP('i', 'i', ADEFS),
     MAP('em', 'em', ADEFS),
+    MAP('small', 'small', ADEFS),
     MAP('strong', 'strong', ADEFS),
     MAP('span', 'span', ADEFS),
     MAP('sub', 'sub', ADEFS),
@@ -686,6 +692,8 @@ class ContentFileCollection(object):
 CREATOR_ROLES = {
     'Author': 'aut',
     'Author of section': 'aut',
+    'Author of Section': 'aut',
+    'Author of Part': 'aut',
     'Editor': 'edt',
     'Adapter': 'adp',
     'Annotator': 'ann',
@@ -810,9 +818,8 @@ def make_opf_file(content_files, metadata):
     if identifier_val is None:
         identifier_id = 'bookuuid'
         identifier_val =  uuid.uuid4().get_urn()
-    i = metadata['dc:identifier']
-    if len(i) == 0:
-        i.insert(0, (identifier_val, {'id': identifier_id}))
+    if 'dc:identifier' not in metadata:
+        metadata['dc:identifier'] = [(identifier_val, {'id': identifier_id})]
 
     ## creator
     metadata['dc:creator'] = []
