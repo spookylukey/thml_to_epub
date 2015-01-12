@@ -6,6 +6,7 @@ import itertools
 import os.path
 import sys
 import urllib
+import urlparse
 import uuid
 import zipfile
 
@@ -246,6 +247,21 @@ def DIV(from_node_name, to_node_name, attribs):
 
     return divhandler
 
+
+class AnchorHandler(MAP('a', 'a', dplus(ADEFS, {'href': COPY, 'name': COPY}))):
+    def handle_node(self, converter, from_node, output_parent):
+        descend, node = super(AnchorHandler, self).handle_node(converter, from_node, output_parent)
+        if node is not None:
+            if 'href' in node.attrib:
+                href = node.attrib['href']
+                p = urlparse.urlparse(href)
+                if not p.netloc and p.fragment:
+                    # Strip query - only want fragment
+                    href = '#' + p.fragment
+                    node.attrib['href'] = href
+        return descend, node
+
+
 class CollectNodesMixin(object):
     def __init__(self):
         super(CollectNodesMixin, self).__init__()
@@ -484,7 +500,7 @@ HANDLERS = [
     MAP('hr', 'hr', ADEFS),
 
     # Inline
-    MAP('a', 'a', dplus(ADEFS, {'href': COPY, 'name': COPY})),
+    AnchorHandler,
     MAP('b', 'b', ADEFS),
     MAP('i', 'i', ADEFS),
     MAP('em', 'em', ADEFS),
