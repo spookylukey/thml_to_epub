@@ -554,6 +554,13 @@ def thml_to_html(input_thml):
 def create_epub(input_html_pairs, metadata, outputfilename):
     epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
 
+    # First pass - collect some info:
+    content_files = [
+        {'basename': "{0}.html".format(i + 1),
+         'fileid': "file_{0}".format(i + 1),
+         'content': html_data,
+         } for i, (src_name, html_data) in enumerate(input_html_pairs)]
+
     #### mimetype
 
     epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
@@ -579,6 +586,7 @@ def create_epub(input_html_pairs, metadata, outputfilename):
     {metadata}
   </metadata>
   <manifest>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     {manifest}
   </manifest>
   <spine toc="ncx">
@@ -589,13 +597,15 @@ def create_epub(input_html_pairs, metadata, outputfilename):
     manifest = ""
     spine = ""
 
-    # uniquer-identifier - pick the first one available.
+
+    # unique-identifier
     if 'dc:identifier' in metadata:
         # Ensure they all have 'id' attributes
         for i, (value, attribs) in enumerate(metadata['dc:identifier']):
             if 'id' not in attribs:
                 attribs['id'] = 'id{0}'.format(i)
             if i == 0:
+                # pick the first dc:identifier
                 identifier_id = attribs['id']
                 identifier_val = value
     else:
@@ -603,6 +613,12 @@ def create_epub(input_html_pairs, metadata, outputfilename):
         identifier_id = 'bookuuid'
         identifier_val =  uuid.uuid4().get_urn()
         metadata['dc:identifier'] = [(identifier_val, {'id': identifier_id})]
+
+    # title
+    if 'dc:title' in metadata:
+        title = metadata['dc:title'][0][0]
+    else:
+        title = "Untitled"
 
     ## Metadata:
     m = []
@@ -621,19 +637,11 @@ def create_epub(input_html_pairs, metadata, outputfilename):
                 value=html_escape(value)))
     metadata_str = '\n'.join(m)
 
-    #### HTML content
-
-    # Write each HTML file to the ebook, collect information for the index
-    for i, (src_name, html_data) in enumerate(input_html_pairs):
-        basename = "{0}.html".format(i + 1)
-        fileid = "file_{0}".format(i + 1)
+    for d in content_files:
         manifest += '<item id="{0}" href="{1}" media-type="application/xhtml+xml"/>'.format(
-            fileid, basename)
-        spine += '<itemref idref="{0}" linear="yes" />'.format(fileid)
-        epub.writestr('OEBPS/' + basename, html_data, zipfile.ZIP_DEFLATED)
+            d['fileid'], d['basename'])
+        spine += '<itemref idref="{0}" linear="yes" />'.format(d['fileid'])
 
-
-    # Write content_opf, now we have created manifest
     content_opf = index_tpl.format(
         identifier_id=identifier_id,
         manifest=manifest,
@@ -641,6 +649,44 @@ def create_epub(input_html_pairs, metadata, outputfilename):
         metadata=metadata_str,
     )
     epub.writestr('OEBPS/content.opf', content_opf)
+
+    #### TOC
+
+    ncx = '''<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN"
+                 "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="{identifier_val}"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle>
+    <text>{title}</text>
+  </docTitle>
+  <navMap>
+    <navPoint id="navpoint-1" playOrder="1">
+      <navLabel>
+        <text>{title}</text>
+      </navLabel>
+      <content src="1.html"/>
+    </navPoint>
+  </navMap>
+</ncx>'''.format(
+    identifier_val=html_escape(identifier_val),
+    title=html_escape(title),
+    )
+    epub.writestr('OEBPS/toc.ncx', ncx)
+
+    # Write each HTML file to the ebook, collect information for the index
+    for data in content_files:
+        epub.writestr('OEBPS/' + data['basename'], data['content'], zipfile.ZIP_DEFLATED)
+
+
+
+    #### HTML content
+
 
     epub.close()
 
