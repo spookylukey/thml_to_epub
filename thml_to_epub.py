@@ -591,6 +591,20 @@ class ContentFileCollection(object):
         return self.files[idx]
 
 
+CREATOR_ROLES = {
+    'Author': 'aut',
+    'Author of section': 'aut',
+    'Editor': 'edt',
+}
+
+def map_creator_role(thml_creator_sub):
+    # For a given DC.Creator 'sub' value used in ThML docs, return the
+    # Dublin Core creator 'role' value.
+    if thml_creator_sub not in CREATOR_ROLES:
+        sys.stderr.write("WARNING: Unhandled DC.Creator sub value '{0}'".format(thml_creator_sub))
+        return "oth"
+    return CREATOR_ROLES[thml_creator_sub]
+
 def create_epub(input_html_pairs, metadata, outputfilename):
     content_files = ContentFileCollection()
     for i, (src_name, html_data) in enumerate(input_html_pairs):
@@ -606,11 +620,13 @@ def create_epub(input_html_pairs, metadata, outputfilename):
   </rootfiles>
 </container>''');
 
+
     #### content.opf
     index_tpl = '''<?xml version='1.0' encoding='utf-8'?>
 <package version="2.0"
          xmlns="http://www.idpf.org/2007/opf"
          xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:opf="http://www.idpf.org/2007/opf"
          unique-identifier="{identifier_id}"
 >
   <metadata>
@@ -629,34 +645,58 @@ def create_epub(input_html_pairs, metadata, outputfilename):
     spine = ""
 
 
-    # unique-identifier
-    if 'dc:identifier' in metadata:
-        # Ensure they all have 'id' attributes
-        for i, (value, attribs) in enumerate(metadata['dc:identifier']):
-            if 'id' not in attribs:
-                attribs['id'] = 'id{0}'.format(i)
-            if i == 0:
-                # pick the first dc:identifier
-                identifier_id = attribs['id']
-                identifier_val = value
-    else:
-        # Or make one up
+    ## Metadata:
+
+    # First pass - gather some items to use later.
+    creators = {}
+    creators_file_as = {}
+    identifier_val = None
+    identifier_id = None
+    title = "Untitled"
+    for name, lst in metadata.items():
+        for i, (value, attribs) in enumerate(lst):
+            if name == 'dc:creator':
+                role = map_creator_role(attribs.get('sub', ''))
+                if attribs.get('scheme', '') == 'file-as':
+                    creators_file_as[role] = value
+                if attribs.get('scheme', '') == 'short-form':
+                    creators[role] = value
+            if name == 'dc:identifier':
+                if 'id' not in attribs:
+                    attribs['id'] = 'id{0}'.format(i)
+                if i == 0:
+                    # pick the first dc:identifier
+                    identifier_id = attribs['id']
+                    identifier_val = value
+            if name == 'dc:title' and i == 0:
+                title = value
+
+    ## identifier
+    if identifier_val is None:
         identifier_id = 'bookuuid'
         identifier_val =  uuid.uuid4().get_urn()
-        metadata['dc:identifier'] = [(identifier_val, {'id': identifier_id})]
+    i = metadata['dc:identifier']
+    if len(i) == 0:
+        i.insert(0, (identifier_val, {'id': identifier_id}))
 
-    # title
-    if 'dc:title' in metadata:
-        title = metadata['dc:title'][0][0]
-    else:
-        title = "Untitled"
+    ## creator
+    metadata['dc:creator'] = []
+    for role in dplus(creators, creators_file_as).keys():
+        c = creators.get(role, None)
+        c_file_as = creators_file_as.get(role, None)
+        if c is None and c_file_as is not None:
+            c = c_file_as
+        elif c_file_as is None and c is not None:
+            c_file_as = c
 
-    ## Metadata:
+        metadata['dc:creator'].append((c, {'opf:file-as': c_file_as,
+                                           'opf:role': role}))
+
     m = []
     for name, lst in metadata.items():
         for i, (value, attribs) in enumerate(lst):
-            if name == 'dc:identifier' and 'id' not in attribs:
-                attribs['id'] = 'id{0}'.format(i)
+            attribs = {k: v for k, v in attribs.items()
+                       if k in ['id', 'opf:file-as', 'opf:role']}
             if attribs:
                 attribs_html = ' ' + ' '.join('{0}="{1}"'.format(utf8(k), html_escape(v))
                                  for k, v in attribs.items())
