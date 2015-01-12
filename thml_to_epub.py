@@ -2,8 +2,8 @@
 
 from collections import defaultdict
 import argparse
+import itertools
 import os.path
-import re
 import sys
 import urllib
 import uuid
@@ -215,11 +215,35 @@ def DIV(from_node_name, to_node_name, attribs):
     cls = MAP(from_node_name, to_node_name, attribs)
     class divhandler(cls):
         def handle_node(self, converter, from_node, output_parent):
-            retval = super(divhandler, self).handle_node(converter, from_node, output_parent)
-            # TODO - collect info for headings/TOC
-            return retval
-        def post_process(self, converter, output_dom):
-            pass # TODO - create TOC
+            title = from_node.attrib.get('title', None)
+            descend, node = super(divhandler, self).handle_node(converter, from_node, output_parent)
+
+            # Collect info for headings/TOC. Note that there will be multiple
+            # divhandler classes and therefore multiple instances, so we have to
+            # put shared state onto converter instead of self.
+            if node is not None and title is not None:
+                converter.toc.count += 1
+                id = node.attrib.get('id', '_gentocid_{0}'.format(converter.toc.count))
+                node.set('id', id)
+                item = TocItem(title, id, [])
+
+                # Now need to figure out which parent it belongs to.
+                n = node.getparent()
+                parent_toc_item = None
+                while n is not None:
+                    if n in converter.toc.node_map:
+                        parent_toc_item = converter.toc.node_map[n]
+                        break
+                    n = n.getparent()
+                if parent_toc_item is None:
+                    parent_toc_list = converter.toc.items
+                else:
+                    parent_toc_list = parent_toc_item.children
+                parent_toc_list.append(item)
+                converter.toc.node_map[node] = item
+
+            return descend, node
+
     return divhandler
 
 class CollectNodesMixin(object):
@@ -497,17 +521,45 @@ HANDLERS = [
 
 ]
 
+
+class HtmlDoc(object):
+    def __init__(self, html, toc):
+        self.html, self.toc = html, toc
+
+
+class TocItem(object):
+    def __init__(self, title, id, children):
+        self.title, self.id, self.children = title, id, children
+
+    def __eq__(self, other):
+        return self.title == other.title and self.id == other.id\
+            and len(self.children) == len(other.children)\
+            and all(c1 == c2 for c1, c2 in zip(self.children, other.children))
+
+    def __repr__(self):
+        return "TocItem({0}, {1}, {2})".format(repr(self.title),
+                                               repr(self.id),
+                                               repr(self.children))
+
+class Toc(object):
+    def __init__(self):
+        self.items = []
+        self.count = 0
+        self.node_map = {}
+
+
 DOCTYPE = """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n"""
 
 class ThmlToHtml(object):
     def __init__(self):
         self.handlers = [cls() for cls in HANDLERS]
         self.metadata = {}
+        self.fallback = Fallback()
 
     def transform(self, thml, full_xml=False):
+        self.toc = Toc() # reset for each document
         input_root = etree.fromstring(thml)
         output_root = etree.Element('root') # Temporary container that we will strip again
-        self.fallback = Fallback()
         self.descend(input_root, output_root)
         children = output_root.getchildren()
         assert len(children) == 1
@@ -515,11 +567,14 @@ class ThmlToHtml(object):
         self.post_process(output_dom)
         if full_xml:
             output_dom.set('xmlns', "http://www.w3.org/1999/xhtml")
-        return etree.tostring(output_dom,
+        html = etree.tostring(output_dom,
                               encoding='utf-8',
                               doctype=DOCTYPE if full_xml else None,
                               xml_declaration=True if full_xml else None,
                               pretty_print=True)
+        retval = HtmlDoc(html, self.toc)
+        self.toc = None
+        return retval
 
     def descend(self, input_node, output_parent_node):
         retvals = []
@@ -553,7 +608,7 @@ class ThmlToHtml(object):
 
 # Simple interface:
 def thml_to_html(input_thml):
-    return ThmlToHtml().transform(input_thml, full_xml=False)
+    return ThmlToHtml().transform(input_thml, full_xml=False).html
 
 
 ### HTML to epub ###
@@ -577,8 +632,9 @@ class NcxFile(EpubFile):
 
 
 class ContentFile(EpubFile):
-    def __init__(self, file_name, content, file_id):
+    def __init__(self, file_name, content, toc, file_id):
         super(ContentFile, self).__init__(file_name, content)
+        self.toc = toc
         self.file_id = file_id
 
 
@@ -589,8 +645,8 @@ class ContentFileCollection(object):
     def __iter__(self):
         return iter(self.files)
 
-    def append(self, file_name, content):
-        f = ContentFile(file_name, content, "file_{0}".format(len(self.files) + 1))
+    def append(self, file_name, content, toc):
+        f = ContentFile(file_name, content, toc, "file_{0}".format(len(self.files) + 1))
         self.files.append(f)
         return f
 
@@ -614,8 +670,8 @@ def map_creator_role(thml_creator_sub):
 
 def create_epub(input_html_pairs, metadata, outputfilename):
     content_files = ContentFileCollection()
-    for i, (src_name, html_data) in enumerate(input_html_pairs):
-        content_files.append("OEBPS/{0}.html".format(i + 1), html_data)
+    for i, (src_name, html_doc) in enumerate(input_html_pairs):
+        content_files.append("OEBPS/{0}.html".format(i + 1), html_doc.html, html_doc.toc)
 
     #### mimetype
     mimetype_file = EpubFile("mimetype", "application/epub+zip")
@@ -751,13 +807,14 @@ def make_ncx_file(content_files, identifier_id, identifier_val, title):
 
     #### TOC
     ncx_file = NcxFile("OEBPS/toc.ncx", "")
+    depth, navpoints = make_nav_points(ncx_file, content_files)
     ncx_file.content = '''<?xml version='1.0' encoding='utf-8'?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN"
                  "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
     <meta name="dtb:uid" content="{identifier_val}"/>
-    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:depth" content="{depth}"/>
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
@@ -765,19 +822,53 @@ def make_ncx_file(content_files, identifier_id, identifier_val, title):
     <text>{title}</text>
   </docTitle>
   <navMap>
-    <navPoint id="navpoint-1" playOrder="1">
-      <navLabel>
-        <text>{title}</text>
-      </navLabel>
-      <content src="{content_file}"/>
-    </navPoint>
+    {navpoints}
   </navMap>
 </ncx>'''.format(
     identifier_val=html_escape(identifier_val),
     title=html_escape(title),
-    content_file=content_files[0].get_path_relative_to_file(ncx_file)
+    navpoints="\n".join(navpoints),
+    depth=depth,
     )
     return ncx_file
+
+def make_nav_points(ncx_file, content_files):
+    max_depth = None
+    all_points = []
+    counter = itertools.count(1)
+    for f in content_files:
+        depth, points = make_nav_points_helper(ncx_file, f, f.toc.items, counter, 0)
+        all_points.extend(points)
+        if max_depth is None:
+            max_depth = depth
+        else:
+            max_depth = max(max_depth, depth)
+
+    return depth, all_points
+
+def make_nav_points_helper(ncx_file, content_file, toc_items, counter, depth):
+    if len(toc_items) == 0:
+        return depth, []
+
+    tpl = """<navPoint id="navpoint-{count}" playOrder="{count}">
+  <navLabel>
+    <text>{title}</text>
+  </navLabel>
+  <content src="{src}"/>
+  {navpoints}
+</navPoint>
+        """
+
+    points = []
+    for item in toc_items:
+        child_depth, child_points = make_nav_points_helper(ncx_file, content_file, item.children, counter, depth)
+        depth = max(depth, child_depth)
+        pt = tpl.format(count=next(counter),
+                        title=item.title,
+                        src=content_file.get_path_relative_to_file(ncx_file) + "#" + item.id,
+                        navpoints="\n".join(child_points))
+        points.append(pt)
+    return depth + 1, points
 
 
 ### Main ###
@@ -885,7 +976,7 @@ def test_metadata():
 </electronicEdInfo>
 </ThML.head>
 </ThML>
-""")
+""").html
     assert '<title>Interesting Things</title>' in html
     assert converter.metadata['dc:title'] == [("Interesting Things", {})]
     assert converter.metadata['dc:creator'] == [("Daffy Duck", {'sub': 'Author',
@@ -894,5 +985,50 @@ def test_metadata():
                                                              'scheme': 'short-form'}),
                                                 ("daffy", {'sub': 'Author',
                                                            'scheme': 'abcd'})]
+
+def test_toc_extraction():
+    converter = ThmlToHtml()
+    doc = converter.transform("""<ThML>
+<ThML.body>
+<div1 title="Chapter 1">
+<p>Some intro stuff</p>
+<div2 title="Section 1">
+<p>Some stuff</p>
+</div2>
+<div2 title="Section 2">
+<p>More stuff</p>
+</div2>
+</div1>
+<div1 title="Chapter 2">
+<h1>Hi</h1>
+</div1>
+</ThML.body>
+</ThML>""")
+
+    assert doc.html.strip() == """
+<html>
+<body>
+<div id="_gentocid_1">
+<p>Some intro stuff</p>
+<div id="_gentocid_2">
+<p>Some stuff</p>
+</div>
+<div id="_gentocid_3">
+<p>More stuff</p>
+</div>
+</div>
+<div id="_gentocid_4">
+<h1>Hi</h1>
+</div>
+</body>
+</html>""".strip()
+    assert doc.toc.items == [
+        TocItem("Chapter 1", "_gentocid_1", [
+            TocItem("Section 1", "_gentocid_2", []),
+            TocItem("Section 2", "_gentocid_3", []),
+            ]),
+        TocItem("Chapter 2", "_gentocid_4", [])
+        ]
+
 if __name__ == '__main__':
     main()
