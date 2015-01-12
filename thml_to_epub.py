@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 import argparse
+import os.path
 import re
 import sys
 import urllib
@@ -550,19 +551,55 @@ def thml_to_html(input_thml):
 
 ### HTML to epub ###
 
+class EpubFile(object):
+    def __init__(self, file_name, content):
+        self.file_name = file_name
+        self.base_name = os.path.basename(file_name)
+        self.content = content
+
+    def get_path_relative_to_file(self, other_file):
+        return os.path.relpath(self.file_name, os.path.dirname(other_file.file_name))
+
+
+class OpfFile(EpubFile):
+    pass
+
+
+class NcxFile(EpubFile):
+    pass
+
+
+class ContentFile(EpubFile):
+    def __init__(self, file_name, content, file_id):
+        super(ContentFile, self).__init__(file_name, content)
+        self.file_id = file_id
+
+
+class ContentFileCollection(object):
+    def __init__(self):
+        self.files = []
+
+    def __iter__(self):
+        return iter(self.files)
+
+    def append(self, file_name, content):
+        f = ContentFile(file_name, content, "file_{0}".format(len(self.files) + 1))
+        self.files.append(f)
+        return f
+
+    def __getitem__(self, idx):
+        return self.files[idx]
+
 
 def create_epub(input_html_pairs, metadata, outputfilename):
     epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
 
-    # First pass - collect some info:
-    content_files = [
-        {'basename': "{0}.html".format(i + 1),
-         'fileid': "file_{0}".format(i + 1),
-         'content': html_data,
-         } for i, (src_name, html_data) in enumerate(input_html_pairs)]
+    content_files = ContentFileCollection()
+    for i, (src_name, html_data) in enumerate(input_html_pairs):
+        content_files.append("OEBPS/{0}.html".format(i + 1), html_data)
 
     #### mimetype
-
+    
     epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
     # We need an index file, that lists all other HTML files
     # This index file itself is referenced in the META_INF/container.xml
@@ -637,22 +674,22 @@ def create_epub(input_html_pairs, metadata, outputfilename):
                 value=html_escape(value)))
     metadata_str = '\n'.join(m)
 
-    for d in content_files:
+    content_opf_file = OpfFile("OEBPS/content.opf", "")
+    for f in content_files:
         manifest += '<item id="{0}" href="{1}" media-type="application/xhtml+xml"/>'.format(
-            d['fileid'], d['basename'])
-        spine += '<itemref idref="{0}" linear="yes" />'.format(d['fileid'])
+            f.file_id, f.get_path_relative_to_file(content_opf_file))
+        spine += '<itemref idref="{0}" linear="yes" />'.format(f.file_id)
 
-    content_opf = index_tpl.format(
+    content_opf_file.content = index_tpl.format(
         identifier_id=identifier_id,
         manifest=manifest,
         spine=spine,
         metadata=metadata_str,
     )
-    epub.writestr('OEBPS/content.opf', content_opf)
 
     #### TOC
-
-    ncx = '''<?xml version='1.0' encoding='utf-8'?>
+    ncx_file = NcxFile("OEBPS/toc.ncx", "")
+    ncx_str = '''<?xml version='1.0' encoding='utf-8'?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN"
                  "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
@@ -670,22 +707,22 @@ def create_epub(input_html_pairs, metadata, outputfilename):
       <navLabel>
         <text>{title}</text>
       </navLabel>
-      <content src="1.html"/>
+      <content src="{content_file}"/>
     </navPoint>
   </navMap>
 </ncx>'''.format(
     identifier_val=html_escape(identifier_val),
     title=html_escape(title),
+    content_file=content_files[0].get_path_relative_to_file(ncx_file)
     )
-    epub.writestr('OEBPS/toc.ncx', ncx)
-
-    # Write each HTML file to the ebook, collect information for the index
-    for data in content_files:
-        epub.writestr('OEBPS/' + data['basename'], data['content'], zipfile.ZIP_DEFLATED)
-
+    ncx_file.content = ncx_str
 
 
     #### HTML content
+
+    # Write each HTML file to the ebook
+    for file in [content_opf_file, ncx_file] + content_files.files:
+        epub.writestr(file.file_name, file.content, zipfile.ZIP_DEFLATED)
 
 
     epub.close()
