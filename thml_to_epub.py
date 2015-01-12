@@ -169,6 +169,19 @@ def DELETE(node_name, attrib_matcher=None):
     return nodehandler
 
 
+# lxml throws errors with .sourceline sometimes
+def get_sourceline(node):
+    try:
+        return node.sourceline
+    except (ValueError, AttributeError):
+        return '?'
+
+def set_sourceline(node, line):
+    try:
+        node.sourceline = line
+    except:
+        pass
+
 def MAP(from_node_name, to_node_name, attribs, attrib_matcher=None):
     """Returns a Handler that maps from one node to another,
     with handled attributes given in attribs.
@@ -188,7 +201,7 @@ def MAP(from_node_name, to_node_name, attribs, attrib_matcher=None):
             # Handle attributes
             for k, v in from_node.attrib.items():
                 if k not in self.attribs:
-                    sys.stderr.write("WARNING: ignoring unknown attribute {0} on {1} node, line {2}\n".format(k, from_node.tag, from_node.sourceline))
+                    sys.stderr.write("WARNING: ignoring unknown attribute {0} on {1} node, line {2}\n".format(k, from_node.tag, get_sourceline(from_node)))
                 else:
                     replacement = self.attribs[k]
                     if replacement is COPY:
@@ -297,7 +310,7 @@ class ScripRefHandler(MAP('scripRef', 'a',
                      'https://www.biblegateway.com/passage/?search={0}&version=NIV'.format(
                          urllib.quote(fix_passage_ref(from_node.attrib['passage']))))
         else:
-            sys.stderr.write("WARNING: can't get 'passage' from scripRef attribs {0} on line {1}\n".format(from_node.attrib, from_node.sourceline))
+            sys.stderr.write("WARNING: can't get 'passage' from scripRef attribs {0} on line {1}\n".format(from_node.attrib, get_sourceline(from_node)))
             node.set('href', '#')
         return descend, node
 
@@ -324,14 +337,14 @@ class NoteHandler(Handler):
             note_id = self.next_id()
         note = etree.Element("div", {'id': note_id,
                                      'class': 'note'})
-        note.sourceline = from_node.sourceline
+        set_sourceline(note, get_sourceline(from_node))
 
         # Build anchor
         anchor = etree.Element("a",
                                {'href': '#' + note_id,
                                 'id': self.next_anchor_id(),
                             })
-        anchor.sourceline = from_node.sourceline
+        set_sourceline(anchor, get_sourceline(from_node))
         anchor.tail = from_node.tail
         sup = etree.Element("sup")
         footnote_num = len(self.notes) + 1
@@ -357,7 +370,7 @@ class NoteHandler(Handler):
         for anchor, note in self.notes:
             div = find_outermost_div(anchor)
             if div is None:
-                sys.stderr.write("WARNING: Can't find a div to place footnote for note on line {0}\n".format(anchor.sourceline))
+                sys.stderr.write("WARNING: Can't find a div to place footnote for note on line {0}\n".format(get_sourceline(anchor)))
                 continue
             if div not in note_containers:
                 container = etree.Element('div', attrib={'class': 'notes'})
@@ -600,7 +613,7 @@ class ThmlToHtml(object):
                 matched = True
                 retvals.append(handler.handle_node(self, input_node, output_parent_node))
         if not matched:
-            sys.stderr.write("WARNING: Element {0} on line {1} not properly handled\n".format(input_node.tag, input_node.sourceline))
+            sys.stderr.write("WARNING: Element {0} on line {1} not properly handled\n".format(input_node.tag, get_sourceline(input_node)))
             retvals.append(self.fallback.handle_node(self, input_node, output_parent_node))
         should_descend = any(d for d, n in retvals)
         if should_descend:
@@ -609,9 +622,9 @@ class ThmlToHtml(object):
             return
         new_parents = [n for d, n in retvals if n is not None]
         if len(new_parents) > 1:
-            raise Exception("More than one parent node returned for {0} on line {1}".format(input_node.tag, input_node.sourceline))
+            raise Exception("More than one parent node returned for {0} on line {1}".format(input_node.tag, get_sourceline(input_node)))
         if len(new_parents) == 0:
-            raise Exception("No new parent defined for node {0} on line {1}".format(input_node.tag, input_node.sourceline))
+            raise Exception("No new parent defined for node {0} on line {1}".format(input_node.tag, get_sourceline(input_node)))
         new_parent = new_parents[0]
 
         for node in input_node.getchildren():
