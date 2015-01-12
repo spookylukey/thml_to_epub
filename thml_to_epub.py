@@ -592,25 +592,19 @@ class ContentFileCollection(object):
 
 
 def create_epub(input_html_pairs, metadata, outputfilename):
-    epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
-
     content_files = ContentFileCollection()
     for i, (src_name, html_data) in enumerate(input_html_pairs):
         content_files.append("OEBPS/{0}.html".format(i + 1), html_data)
 
     #### mimetype
-    
-    epub.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
-    # We need an index file, that lists all other HTML files
-    # This index file itself is referenced in the META_INF/container.xml
-    # file
-    epub.writestr("META-INF/container.xml", '''<?xml version="1.0"?>
+    mimetype_file = EpubFile("mimetype", "application/epub+zip")
+    container_file = EpubFile("META-INF/container.xml", '''<?xml version="1.0"?>
 <container version="1.0"
            xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
-</container>''', zipfile.ZIP_STORED);
+</container>''');
 
     #### content.opf
     index_tpl = '''<?xml version='1.0' encoding='utf-8'?>
@@ -717,12 +711,12 @@ def create_epub(input_html_pairs, metadata, outputfilename):
     )
     ncx_file.content = ncx_str
 
+    # Write epub
 
-    #### HTML content
-
-    # Write each HTML file to the ebook
-    for file in [content_opf_file, ncx_file] + content_files.files:
-        epub.writestr(file.file_name, file.content, zipfile.ZIP_DEFLATED)
+    epub = zipfile.ZipFile(outputfilename, "w", zipfile.ZIP_DEFLATED)
+    for file in [mimetype_file, container_file, content_opf_file, ncx_file] + content_files.files:
+        epub.writestr(file.file_name, file.content,
+                      zipfile.ZIP_STORED if file.file_name == 'mimetype' else zipfile.ZIP_DEFLATED)
 
 
     epub.close()
