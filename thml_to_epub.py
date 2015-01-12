@@ -352,6 +352,13 @@ class DCMetaDataCollector(Handler):
         return False, None
 
     def post_process(self, converter, output_dom):
+        if 'dc:title' in self.dc_metadata:
+            # Insert a 'title' element into doc, it's required for HTML validity
+            head = output_dom.find('head')
+            if head is not None:
+                title = etree.Element('title')
+                title.text = self.dc_metadata['dc:title'][0][0]
+                head.append(title)
         converter.metadata.update(self.dc_metadata)
 
 
@@ -868,9 +875,9 @@ def test_metadata():
 </ThML.head>
 </ThML>
 """)
-    assert re.match('<html>\\s*<head>\\s*</head>\\s*</html>\\s*', html) is not None
-    assert converter.metadata['dc.title'] == [("Interesting Things", {})]
-    assert converter.metadata['dc.creator'] == [("Daffy Duck", {'sub': 'Author',
+    assert '<title>Interesting Things</title>' in html
+    assert converter.metadata['dc:title'] == [("Interesting Things", {})]
+    assert converter.metadata['dc:creator'] == [("Daffy Duck", {'sub': 'Author',
                                                                 'scheme': 'file-as'}),
                                                 ("D. Duck", {'sub': 'Author',
                                                              'scheme': 'short-form'}),
