@@ -919,10 +919,10 @@ def make_nav_points_helper(ncx_file, content_file, toc_items, counter, depth):
     for item in toc_items:
         child_depth, child_points = make_nav_points_helper(ncx_file, content_file, item.children, counter, depth)
         depth = max(depth, child_depth)
-        pt = tpl.format(count=next(counter),
-                        title=item.title,
-                        src=content_file.get_path_relative_to_file(ncx_file) + "#" + item.id,
-                        navpoints="\n".join(child_points))
+        pt = utf8(tpl.format(count=next(counter),
+                             title=utf8(item.title),
+                             src=content_file.get_path_relative_to_file(ncx_file) + "#" + item.id,
+                             navpoints="\n".join(child_points)))
         points.append(pt)
     return depth + 1, points
 
