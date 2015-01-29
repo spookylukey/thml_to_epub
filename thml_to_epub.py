@@ -275,6 +275,14 @@ class AnchorHandler(MAP('a', 'a', dplus(ADEFS, {'href': COPY, 'name': COPY}))):
         return descend, node
 
 
+class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'height': COPY, 'width': COPY}))):
+    def handle_node(self, converter, from_node, output_parent):
+        descend, node = super(ImgHandler, self).handle_node(converter, from_node, output_parent)
+        if converter.download_images:
+            pass # TODO
+        return descend, node
+
+
 class CollectNodesMixin(object):
     def __init__(self):
         super(CollectNodesMixin, self).__init__()
@@ -508,7 +516,7 @@ HANDLERS = [
     MAP('td', 'td', TADEFS),
     MAP('th', 'th', TADEFS),
     MAP('br', 'br', ADEFS),
-    MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'height': COPY, 'width': COPY})),
+    ImgHandler,
     MAP('ul', 'ul', ADEFS),
     MAP('ol', 'ol', ADEFS),
     MAP('li', 'li', ADEFS),
@@ -586,7 +594,8 @@ class Toc(object):
 DOCTYPE = """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n"""
 
 class ThmlToHtml(object):
-    def __init__(self):
+    def __init__(self, download_images=False):
+        self.download_images = download_images
         self.handlers = [cls() for cls in HANDLERS]
         self.metadata = {}
         self.fallback = Fallback()
@@ -938,6 +947,8 @@ def make_nav_points_helper(ncx_file, content_file, toc_items, counter, depth):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("thml_file", nargs='+')
+parser.add_argument("--download-images", action='store_true',
+                    help="Attempt to download images from CCEL")
 
 def main():
     args = parser.parse_args()
@@ -945,7 +956,7 @@ def main():
     outputfile = input_files[0].replace('.xml', '').replace('.thml', '') + ".rough.epub"
 
     input_thml_pairs = [(fn, file(fn).read()) for fn in input_files]
-    converter = ThmlToHtml()
+    converter = ThmlToHtml(download_images=args.download_images)
     input_html_pairs = [(fn, converter.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
     create_epub(input_html_pairs, converter.metadata, outputfile)
 
