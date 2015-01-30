@@ -11,6 +11,7 @@ import uuid
 import zipfile
 
 from lxml import etree
+import requests
 
 
 ###### ThML to HTML conversion ######
@@ -85,6 +86,8 @@ ADEFS = {
 
 # Base class
 class Handler(object):
+    post_process_sort_order = 0
+
     def match_attributes(self, attribs):
         return True
 
@@ -276,11 +279,40 @@ class AnchorHandler(MAP('a', 'a', dplus(ADEFS, {'href': COPY, 'name': COPY}))):
 
 
 class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'height': COPY, 'width': COPY}))):
+    def __init__(self):
+        super(ImgHandler, self).__init__()
+        self.img_srcs = []
+
     def handle_node(self, converter, from_node, output_parent):
         descend, node = super(ImgHandler, self).handle_node(converter, from_node, output_parent)
         if converter.download_images:
-            pass # TODO
+            if 'src' in node.attrib:
+                self.img_srcs.append(node.attrib['src'])
         return descend, node
+
+    def post_process(self, converter, output_dom):
+        converter.img_files = {}
+        ccel_url = None
+        for n, d in converter.metadata.get('dc:identifier', []):
+            if d.get('scheme', '') == 'URL':
+                ccel_url = n
+
+        if ccel_url is None:
+            return
+
+        # lop off the .html extension
+        path = ccel_url.replace('.html', '')
+        img_url_base = 'http://www.ccel.org' + path + '/files/'
+        for src in self.img_srcs:
+            img_url = img_url_base + src
+            img_file_resp = requests.get(img_url)
+            if img_file_resp.status_code == 200:
+                if not img_file_resp.headers.get('content/type', '').startswith('image/'):
+                    sys.stderr.write("WARNING: ignoring download for {0} which is not an image file.\n".format(img_url))
+                converter.img_files[src] = img_file_resp.content
+                import IPython; IPython.embed()
+            else:
+                sys.stderr.write("WARNING: Image download: {0} for {1}\n".format(img_file_resp.status_code, img_url))
 
 
 class CollectNodesMixin(object):
@@ -397,6 +429,8 @@ def find_outermost_div(node, last_div=None):
 
 
 class DCMetaDataCollector(Handler):
+    post_process_sort_order = -100
+
     def __init__(self):
         self.dc_metadata = defaultdict(list)
 
@@ -646,7 +680,7 @@ class ThmlToHtml(object):
             self.descend(node, new_parent)
 
     def post_process(self, output_dom):
-        for handler in self.handlers:
+        for handler in sorted(self.handlers, key=lambda h: h.post_process_sort_order):
             handler.post_process(self, output_dom)
 
 
@@ -948,7 +982,7 @@ def make_nav_points_helper(ncx_file, content_file, toc_items, counter, depth):
 parser = argparse.ArgumentParser()
 parser.add_argument("thml_file", nargs='+')
 parser.add_argument("--download-images", action='store_true',
-                    help="Attempt to download images from CCEL")
+                    help="Attempt to download images from CCEL. WORK IN PROGRESS")
 parser.add_argument("--output", default="%d/%f.rough.pub",
                     help="""Template for the output filename. Default: %(default)s. Substitutions are:
 %%d: directory of first input filename;
