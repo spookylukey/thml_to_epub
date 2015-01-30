@@ -477,6 +477,7 @@ class NoteHandler(Handler):
             if div not in note_containers:
                 container = etree.Element('div', attrib={'class': 'notes'})
                 div.append(container)
+                note_containers[div] = container
             else:
                 container = note_containers[div]
             container.append(note)
