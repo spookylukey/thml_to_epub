@@ -320,7 +320,7 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
             if not converter.ignore_downloaded_images and image_directory:
                 path = os.path.join(image_directory, filename)
                 if os.path.exists(path):
-                    sys.stderr.write("SUCCESS: {0} found at {1}.\n".format(filename, path))
+                    sys.stderr.write("SUCCESS: {0} found at {1}\n".format(filename, path))
                     converter.img_files.append({
                         'file_name': filename,
                         'media_type': mimetypes.guess_type(path),
@@ -359,7 +359,7 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
                     if not img_file_resp.headers.get('content-type', '').startswith('image/'):
                         sys.stderr.write("WARNING: ignoring download for {0} which is not an image file.\n".format(url))
                     else:
-                        sys.stderr.write("SUCCESS: {0} found at {1}.\n".format(filename, url))
+                        sys.stderr.write("SUCCESS: {0} found at {1}\n".format(filename, url))
                         converter.img_files.append({
                             'file_name': filename,
                             'media_type': img_file_resp.headers['content-type'],
