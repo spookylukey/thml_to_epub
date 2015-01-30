@@ -23,10 +23,7 @@ exist!)
 TODO
 ~~~~
 
-* Go through http://www.ccel.org/ThML/ThML1.04.htm and find everything that
-  needs converting.
+* Handle various things in http://www.ccel.org/ThML/ThML1.04.htm that we are not handling yet e.g. ``term``, ``index``
 * Possibly split files into multiple files in epub structure.
-* Build table of contents
-* Handle images referenced in ThML
 
 See http://www.manuel-strehl.de/dev/simple_epub_ebooks_with_python.en.html
