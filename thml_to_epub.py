@@ -1069,18 +1069,23 @@ parser.add_argument("--output", default="%d/%f.rough.epub",
 %%a: author extracted from metadata;
                      """)
 
+def safe_filename(s):
+    return s.replace('/', '_')
+
 def do_substitutions(template, directory, basename, metadata):
     if '%d' in template:
         template = template.replace('%d', os.path.abspath(directory))
     if '%f' in template:
         template = template.replace('%f', os.path.splitext(basename)[0])
     if '%t' in template:
-        template = template.replace('%t', metadata['dc:title'][0][0])
+        title =  metadata['dc:title'][0][0]
+        template = template.replace('%t', safe_filename(title))
     if '%a' in template:
-        template = template.replace('%a', sorted(metadata['dc:creator'],
-                                                 key=lambda (n, attrs):
-                                                 0 if (attrs.get('sub', '').lower() == 'author' and attrs.get('scheme','') == 'file-as')
-                                                 else 1)[0][0])
+        author = sorted(metadata['dc:creator'],
+                        key=lambda (n, attrs):
+                        0 if (attrs.get('sub', '').lower() == 'author' and attrs.get('scheme','') == 'file-as')
+                        else 1)[0][0]
+        template = template.replace('%a', safe_filename(author))
 
     return template
 
