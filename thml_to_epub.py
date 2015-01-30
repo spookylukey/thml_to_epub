@@ -960,7 +960,7 @@ parser.add_argument("--output", default="%d/%f.rough.pub",
 
 def output_filename(template, input_files, metadata):
     if '%d' in template:
-        template = template.replace('%d', os.path.dirname(input_files[0]))
+        template = template.replace('%d', os.path.abspath(os.path.dirname(input_files[0])))
     if '%f' in template:
         template = template.replace('%f', os.path.splitext(os.path.basename(input_files[0]))[0])
     if '%t' in template:
