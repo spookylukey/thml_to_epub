@@ -1070,7 +1070,7 @@ parser.add_argument("--output", default="%d/%f.rough.epub",
                      """)
 
 def safe_filename(s):
-    return s.replace('/', '_')
+    return s.replace('/', '_').replace('\n', ' ')
 
 def do_substitutions(template, directory, basename, metadata):
     if '%d' in template:
