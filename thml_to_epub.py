@@ -291,8 +291,8 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
         if 'src' in node.attrib:
             src = node.attrib['src']
             url = urlparse.urlparse(src)
-            # Create a relative path
-            filename = url.path.lstrip('/')
+            # Create a relative path, 1 path component
+            filename = os.path.split(url.path)[-1]
             node.attrib['src'] = filename
             if converter.download_images:
                 self.img_srcs.add((filename, src))
@@ -301,17 +301,18 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
     def post_process(self, converter, output_dom):
         converter.img_files = []
         image_directory = converter.image_directory
-        ccel_url = None
+        ccel_book_url = None
         for n, d in converter.metadata.get('dc:identifier', []):
             if d.get('scheme', '') == 'URL':
-                ccel_url = n
+                ccel_book_url = n
 
-        if ccel_url is None:
-            return
-
-        # lop off the .html extension
-        base_path = ccel_url.replace('.html', '')
-        img_url_base = 'http://www.ccel.org' + base_path + '/files/'
+        ccel_url_base = 'http://www.ccel.org'
+        if ccel_book_url is not None:
+            book_path = ccel_book_url.replace('.html', '')
+            book_img_base = ccel_url_base + book_path + '/files/'
+        else:
+            book_path = None
+            book_img_base = None
 
         # Get all images
         for filename, src in sorted(list(self.img_srcs)):
@@ -331,18 +332,24 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
                 continue
 
             # Download:
-            attempts = [img_url_base + src]
 
-            stem, ext = os.path.splitext(src)
-            ext = ext[1:]
-            m = re.match('.*-p(\d+)', stem)
-            if m:
-                # Looks like it could be a page image.
-                # Attempt to get image from page scans.
-                pagenum = int(m.groups()[0])
-                new_attempt = 'http://www.ccel.org{path}/{ext}/{pagenum:04d}={pagenum}.{ext}'.format(
-                    path=base_path, ext=ext, pagenum=pagenum)
-                attempts.append(new_attempt)
+            attempts = []
+            if book_img_base is not None and not src.startswith('/'):
+                attempts.append(book_img_base + src)
+            if src.startswith('/'):
+                attempts.append(ccel_url_base + src)
+
+            if book_path is not None:
+                stem, ext = os.path.splitext(filename)
+                ext = ext[1:]
+                m = re.match('.*-p(\d+)', stem)
+                if m:
+                    # Looks like it could be a page image.
+                    # Attempt to get image from page scans.
+                    pagenum = int(m.groups()[0])
+                    new_attempt = 'http://www.ccel.org{path}/{ext}/{pagenum:04d}={pagenum}.{ext}'.format(
+                        path=book_path, ext=ext, pagenum=pagenum)
+                    attempts.append(new_attempt)
 
             for url in attempts:
                 if found:
