@@ -949,15 +949,38 @@ parser = argparse.ArgumentParser()
 parser.add_argument("thml_file", nargs='+')
 parser.add_argument("--download-images", action='store_true',
                     help="Attempt to download images from CCEL")
+parser.add_argument("--output", default="%d/%f.rough.pub",
+                    help="""Template for the output filename. Default: %(default)s. Substitutions are:
+%%d: directory of first input filename;
+%%f: basename of first input filename without extension;
+%%t: title extracted from metadata;
+%%a: author extracted from metadata;
+                     """)
+
+
+def output_filename(template, input_files, metadata):
+    if '%d' in template:
+        template = template.replace('%d', os.path.dirname(input_files[0]))
+    if '%f' in template:
+        template = template.replace('%f', os.path.splitext(os.path.basename(input_files[0]))[0])
+    if '%t' in template:
+        template = template.replace('%t', metadata['dc:title'][0][0])
+    if '%a' in template:
+        template = template.replace('%a', sorted(metadata['dc:creator'],
+                                                 key=lambda (n, attrs):
+                                                 0 if (attrs.get('sub', '').lower() == 'author' and attrs.get('scheme','') == 'file-as')
+                                                 else 1)[0][0])
+
+    return template
+
 
 def main():
     args = parser.parse_args()
     input_files = args.thml_file
-    outputfile = input_files[0].replace('.xml', '').replace('.thml', '') + ".rough.epub"
-
     input_thml_pairs = [(fn, file(fn).read()) for fn in input_files]
     converter = ThmlToHtml(download_images=args.download_images)
     input_html_pairs = [(fn, converter.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
+    outputfile = output_filename(args.output, input_files, converter.metadata)
     create_epub(input_html_pairs, converter.metadata, outputfile)
 
 
