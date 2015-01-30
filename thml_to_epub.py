@@ -291,8 +291,7 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
         if 'src' in node.attrib:
             src = node.attrib['src']
             url = urlparse.urlparse(src)
-            # Create a relative path. But add OEBPS, because that is where we
-            # will store the image.
+            # Create a relative path
             filename = url.path.lstrip('/')
             node.attrib['src'] = filename
             if converter.download_images:
