@@ -3,6 +3,7 @@
 from collections import defaultdict
 import argparse
 import itertools
+import mimetypes
 import os.path
 import re
 import sys
@@ -292,7 +293,6 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
             url = urlparse.urlparse(src)
             # Create a relative path. But add OEBPS, because that is where we
             # will store the image.
-            #filename = os.path.join('OEBPS', url.path.lstrip('/'))
             filename = url.path.lstrip('/')
             node.attrib['src'] = filename
             if converter.download_images:
@@ -301,6 +301,7 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
 
     def post_process(self, converter, output_dom):
         converter.img_files = []
+        image_directory = converter.image_directory
         ccel_url = None
         for n, d in converter.metadata.get('dc:identifier', []):
             if d.get('scheme', '') == 'URL':
@@ -312,32 +313,61 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
         # lop off the .html extension
         base_path = ccel_url.replace('.html', '')
         img_url_base = 'http://www.ccel.org' + base_path + '/files/'
+
+        # Get all images
         for filename, src in sorted(list(self.img_srcs)):
+            found = False
+            if not converter.ignore_downloaded_images and image_directory:
+                path = os.path.join(image_directory, filename)
+                if os.path.exists(path):
+                    sys.stderr.write("SUCCESS: {0} found at {1}.\n".format(filename, path))
+                    converter.img_files.append({
+                        'file_name': filename,
+                        'media_type': mimetypes.guess_type(path),
+                        'content': file(path).read(),
+                        })
+                    found = True
+
+            if found:
+                continue
+
+            # Download:
             attempts = [img_url_base + src]
+
+            stem, ext = os.path.splitext(src)
+            ext = ext[1:]
+            m = re.match('.*-p(\d+)', stem)
+            if m:
+                # Looks like it could be a page image.
+                # Attempt to get image from page scans.
+                pagenum = int(m.groups()[0])
+                new_attempt = 'http://www.ccel.org{path}/{ext}/{pagenum:04d}={pagenum}.{ext}'.format(
+                    path=base_path, ext=ext, pagenum=pagenum)
+                attempts.append(new_attempt)
+
             for url in attempts:
+                if found:
+                    break
                 img_file_resp = requests.get(url)
                 if img_file_resp.status_code == 200:
                     if not img_file_resp.headers.get('content-type', '').startswith('image/'):
                         sys.stderr.write("WARNING: ignoring download for {0} which is not an image file.\n".format(url))
                     else:
+                        sys.stderr.write("SUCCESS: {0} found at {1}.\n".format(filename, url))
                         converter.img_files.append({
                             'file_name': filename,
                             'media_type': img_file_resp.headers['content-type'],
                             'content': img_file_resp.content,
                         })
+                        if image_directory:
+                            path = os.path.join(image_directory, filename)
+                            if not os.path.exists(image_directory):
+                                os.makedirs(image_directory)
+                            with file(path, "w") as f:
+                                f.write(img_file_resp.content)
+                        found = True
                 else:
                     sys.stderr.write("WARNING: Image download: {0} for {1}\n".format(img_file_resp.status_code, url))
-                    fname, ext = os.path.splitext(src)
-                    ext = ext[1:]
-                    m = re.match('.*-p(\d+)', fname)
-                    if m:
-                        # Looks like it could be a page image.
-                        # Attempt to get image from page scans.
-                        pagenum = int(m.groups()[0])
-                        new_attempt = 'http://www.ccel.org{path}/{ext}/{pagenum:04d}={pagenum}.{ext}'.format(
-                            path=base_path, ext=ext, pagenum=pagenum)
-                        attempts.append(new_attempt)
-                        sys.stderr.write("ATTEMPTING: {0}\n".format(new_attempt))
                 time.sleep(converter.http_sleep_time)
 
 
@@ -654,9 +684,11 @@ class Toc(object):
 DOCTYPE = """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n"""
 
 class ThmlToHtml(object):
-    def __init__(self, download_images=False, http_sleep_time=1):
+    def __init__(self, download_images=False, http_sleep_time=1, image_directory="", ignore_downloaded_images=False):
         self.download_images = download_images
         self.http_sleep_time = http_sleep_time
+        self.image_directory = image_directory
+        self.ignore_downloaded_images = ignore_downloaded_images
         self.handlers = [cls() for cls in HANDLERS]
         self.metadata = {}
         self.fallback = Fallback()
@@ -1016,6 +1048,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("thml_file", nargs='+')
 parser.add_argument("--download-images", action='store_true',
                     help="Attempt to download images from CCEL. WORK IN PROGRESS")
+parser.add_argument("--save-downloaded-images-to", default="%d/%f_files/",
+                    help="""Folder to save downloaded images to. Defaults to %(default)s (see substitutions below).
+This saves downloading same files over and over. Set to empty to disable.""")
+parser.add_argument("--ignore-downloaded-images", default=False, action='store_true',
+                    help="""Don't use previously downloaded images""")
 parser.add_argument("--http-sleep-time", action='store', default=1, type=int,
                     help="Amount to sleep in seconds between HTTP requests when downloading, to avoid slamming CCEL")
 parser.add_argument("--output", default="%d/%f.rough.epub",
@@ -1026,12 +1063,11 @@ parser.add_argument("--output", default="%d/%f.rough.epub",
 %%a: author extracted from metadata;
                      """)
 
-
-def output_filename(template, input_files, metadata):
+def do_substitutions(template, directory, basename, metadata):
     if '%d' in template:
-        template = template.replace('%d', os.path.abspath(os.path.dirname(input_files[0])))
+        template = template.replace('%d', os.path.abspath(directory))
     if '%f' in template:
-        template = template.replace('%f', os.path.splitext(os.path.basename(input_files[0]))[0])
+        template = template.replace('%f', os.path.splitext(basename)[0])
     if '%t' in template:
         template = template.replace('%t', metadata['dc:title'][0][0])
     if '%a' in template:
@@ -1047,10 +1083,15 @@ def main():
     args = parser.parse_args()
     input_files = args.thml_file
     input_thml_pairs = [(fn, file(fn).read()) for fn in input_files]
+    directory = os.path.dirname(input_files[0])
+    basename = os.path.basename(input_files[0])
+    image_directory = do_substitutions(args.save_downloaded_images_to, directory, basename, None)
     converter = ThmlToHtml(download_images=args.download_images,
-                           http_sleep_time=args.http_sleep_time)
+                           http_sleep_time=args.http_sleep_time,
+                           image_directory=image_directory,
+                           ignore_downloaded_images=args.ignore_downloaded_images)
     input_html_pairs = [(fn, converter.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
-    outputfile = output_filename(args.output, input_files, converter.metadata)
+    outputfile = do_substitutions(args.output, directory, basename, converter.metadata)
     create_epub(input_html_pairs, converter.metadata, getattr(converter, 'img_files', []), outputfile)
 
 
