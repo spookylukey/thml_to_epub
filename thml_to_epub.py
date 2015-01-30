@@ -4,7 +4,9 @@ from collections import defaultdict
 import argparse
 import itertools
 import os.path
+import re
 import sys
+import time
 import urllib
 import urlparse
 import uuid
@@ -281,17 +283,24 @@ class AnchorHandler(MAP('a', 'a', dplus(ADEFS, {'href': COPY, 'name': COPY}))):
 class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'height': COPY, 'width': COPY}))):
     def __init__(self):
         super(ImgHandler, self).__init__()
-        self.img_srcs = []
+        self.img_srcs = set()
 
     def handle_node(self, converter, from_node, output_parent):
         descend, node = super(ImgHandler, self).handle_node(converter, from_node, output_parent)
-        if converter.download_images:
-            if 'src' in node.attrib:
-                self.img_srcs.append(node.attrib['src'])
+        if 'src' in node.attrib:
+            src = node.attrib['src']
+            url = urlparse.urlparse(src)
+            # Create a relative path. But add OEBPS, because that is where we
+            # will store the image.
+            #filename = os.path.join('OEBPS', url.path.lstrip('/'))
+            filename = url.path.lstrip('/')
+            node.attrib['src'] = filename
+            if converter.download_images:
+                self.img_srcs.add((filename, src))
         return descend, node
 
     def post_process(self, converter, output_dom):
-        converter.img_files = {}
+        converter.img_files = []
         ccel_url = None
         for n, d in converter.metadata.get('dc:identifier', []):
             if d.get('scheme', '') == 'URL':
@@ -301,18 +310,35 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
             return
 
         # lop off the .html extension
-        path = ccel_url.replace('.html', '')
-        img_url_base = 'http://www.ccel.org' + path + '/files/'
-        for src in self.img_srcs:
-            img_url = img_url_base + src
-            img_file_resp = requests.get(img_url)
-            if img_file_resp.status_code == 200:
-                if not img_file_resp.headers.get('content/type', '').startswith('image/'):
-                    sys.stderr.write("WARNING: ignoring download for {0} which is not an image file.\n".format(img_url))
-                converter.img_files[src] = img_file_resp.content
-                import IPython; IPython.embed()
-            else:
-                sys.stderr.write("WARNING: Image download: {0} for {1}\n".format(img_file_resp.status_code, img_url))
+        base_path = ccel_url.replace('.html', '')
+        img_url_base = 'http://www.ccel.org' + base_path + '/files/'
+        for filename, src in sorted(list(self.img_srcs)):
+            attempts = [img_url_base + src]
+            for url in attempts:
+                img_file_resp = requests.get(url)
+                if img_file_resp.status_code == 200:
+                    if not img_file_resp.headers.get('content-type', '').startswith('image/'):
+                        sys.stderr.write("WARNING: ignoring download for {0} which is not an image file.\n".format(url))
+                    else:
+                        converter.img_files.append({
+                            'file_name': filename,
+                            'media_type': img_file_resp.headers['content-type'],
+                            'content': img_file_resp.content,
+                        })
+                else:
+                    sys.stderr.write("WARNING: Image download: {0} for {1}\n".format(img_file_resp.status_code, url))
+                    fname, ext = os.path.splitext(src)
+                    ext = ext[1:]
+                    m = re.match('.*-p(\d+)', fname)
+                    if m:
+                        # Looks like it could be a page image.
+                        # Attempt to get image from page scans.
+                        pagenum = int(m.groups()[0])
+                        new_attempt = 'http://www.ccel.org{path}/{ext}/{pagenum:04d}={pagenum}.{ext}'.format(
+                            path=base_path, ext=ext, pagenum=pagenum)
+                        attempts.append(new_attempt)
+                        sys.stderr.write("ATTEMPTING: {0}\n".format(new_attempt))
+                time.sleep(converter.http_sleep_time)
 
 
 class CollectNodesMixin(object):
@@ -628,8 +654,9 @@ class Toc(object):
 DOCTYPE = """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n"""
 
 class ThmlToHtml(object):
-    def __init__(self, download_images=False):
+    def __init__(self, download_images=False, http_sleep_time=1):
         self.download_images = download_images
+        self.http_sleep_time = http_sleep_time
         self.handlers = [cls() for cls in HANDLERS]
         self.metadata = {}
         self.fallback = Fallback()
@@ -710,8 +737,9 @@ class NcxFile(EpubFile):
 
 
 class ContentFile(EpubFile):
-    def __init__(self, file_name, content, toc, file_id):
+    def __init__(self, file_name, content, media_type, toc, file_id):
         super(ContentFile, self).__init__(file_name, content)
+        self.media_type = media_type
         self.toc = toc
         self.file_id = file_id
 
@@ -723,8 +751,8 @@ class ContentFileCollection(object):
     def __iter__(self):
         return iter(self.files)
 
-    def append(self, file_name, content, toc):
-        f = ContentFile(file_name, content, toc, "file_{0}".format(len(self.files) + 1))
+    def append(self, file_name, content, media_type, toc):
+        f = ContentFile(file_name, content, media_type, toc, "file_{0}".format(len(self.files) + 1))
         self.files.append(f)
         return f
 
@@ -775,10 +803,13 @@ def map_creator_role(thml_creator_sub):
         return "oth"
     return CREATOR_ROLES[thml_creator_sub]
 
-def create_epub(input_html_pairs, metadata, outputfilename):
+def create_epub(input_html_pairs, metadata, img_files, outputfilename):
     content_files = ContentFileCollection()
     for i, (src_name, html_doc) in enumerate(input_html_pairs):
-        content_files.append("OEBPS/{0}.html".format(i + 1), html_doc.html, html_doc.toc)
+        content_files.append("OEBPS/{0}.html".format(i + 1), html_doc.html, "application/xhtml+xml", html_doc.toc)
+
+    for img_file in img_files:
+        content_files.append("OEBPS/" + img_file['file_name'], img_file['content'], img_file['media_type'], None)
 
     #### mimetype
     mimetype_file = EpubFile("mimetype", "application/epub+zip")
@@ -943,6 +974,8 @@ def make_nav_points(ncx_file, content_files):
     all_points = []
     counter = itertools.count(1)
     for f in content_files:
+        if f.toc is None:
+            continue # image files
         depth, points = make_nav_points_helper(ncx_file, f, f.toc.items, counter, 0)
         all_points.extend(points)
         if max_depth is None:
@@ -983,7 +1016,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("thml_file", nargs='+')
 parser.add_argument("--download-images", action='store_true',
                     help="Attempt to download images from CCEL. WORK IN PROGRESS")
-parser.add_argument("--output", default="%d/%f.rough.pub",
+parser.add_argument("--http-sleep-time", action='store', default=1, type=int,
+                    help="Amount to sleep in seconds between HTTP requests when downloading, to avoid slamming CCEL")
+parser.add_argument("--output", default="%d/%f.rough.epub",
                     help="""Template for the output filename. Default: %(default)s. Substitutions are:
 %%d: directory of first input filename;
 %%f: basename of first input filename without extension;
@@ -1012,10 +1047,11 @@ def main():
     args = parser.parse_args()
     input_files = args.thml_file
     input_thml_pairs = [(fn, file(fn).read()) for fn in input_files]
-    converter = ThmlToHtml(download_images=args.download_images)
+    converter = ThmlToHtml(download_images=args.download_images,
+                           http_sleep_time=args.http_sleep_time)
     input_html_pairs = [(fn, converter.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
     outputfile = output_filename(args.output, input_files, converter.metadata)
-    create_epub(input_html_pairs, converter.metadata, outputfile)
+    create_epub(input_html_pairs, converter.metadata, getattr(converter, 'img_files', []), outputfile)
 
 
 ### Tests ###
