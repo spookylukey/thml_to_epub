@@ -294,8 +294,7 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
             # Create a relative path, 1 path component
             filename = os.path.split(url.path)[-1]
             node.attrib['src'] = filename
-            if converter.download_images:
-                self.img_srcs.add((filename, src))
+            self.img_srcs.add((filename, src))
         return descend, node
 
     def post_process(self, converter, output_dom):
@@ -317,6 +316,8 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
         # Get all images
         for filename, src in sorted(list(self.img_srcs)):
             found = False
+
+            # Look locally first:
             if not converter.ignore_downloaded_images and image_directory:
                 path = os.path.join(image_directory, filename)
                 if os.path.exists(path):
@@ -331,8 +332,10 @@ class ImgHandler(MAP('img', 'img', dplus(ADEFS, {'src': COPY, 'alt': COPY, 'heig
             if found:
                 continue
 
-            # Download:
+            if not converter.download_images:
+                continue
 
+            # Download:
             attempts = []
             if book_img_base is not None and not src.startswith('/'):
                 attempts.append(book_img_base + src)
@@ -1059,7 +1062,7 @@ parser.add_argument("--save-downloaded-images-to", default="%d/%f_files/",
                     help="""Folder to save downloaded images to. Defaults to %(default)s (see substitutions below).
 This saves downloading same files over and over. Set to empty to disable.""")
 parser.add_argument("--ignore-downloaded-images", default=False, action='store_true',
-                    help="""Don't use previously downloaded images""")
+                    help="""Don't use previously downloaded images - always attempt to re-download.""")
 parser.add_argument("--http-sleep-time", action='store', default=1, type=int,
                     help="Amount to sleep in seconds between HTTP requests when downloading, to avoid slamming CCEL")
 parser.add_argument("--output", default="%d/%f.rough.epub",
