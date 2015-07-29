@@ -1072,6 +1072,8 @@ parser.add_argument("--output", default="%d/%f.rough.epub",
 %%t: title extracted from metadata;
 %%a: author extracted from metadata;
                      """)
+parser.add_argument("--verbose", action='store_true',
+                    help="Print more debugging information")
 
 def safe_filename(s):
     return s.replace('/', '_').replace('\n', ' ')
@@ -1107,6 +1109,8 @@ def main():
                            ignore_downloaded_images=args.ignore_downloaded_images)
     input_html_pairs = [(fn, converter.transform(t, full_xml=True)) for fn, t in input_thml_pairs]
     outputfile = do_substitutions(args.output, directory, basename, converter.metadata)
+    if args.verbose:
+        sys.stderr.write("Writing to {0}\n".format(outputfile))
     create_epub(input_html_pairs, converter.metadata, getattr(converter, 'img_files', []), outputfile)
 
 
